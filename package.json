@@ -1,11 +1,11 @@
 {
-  "name": "claude-multi-boot",
+  "name": "claude-swarm",
   "version": "0.1.0",
   "description": "Sync Claude Code sessions across multiple machines in real-time",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "claude-multi-boot": "dist/cli.js"
+    "claude-swarm": "dist/cli.js"
   },
   "scripts": {
     "build": "tsc",

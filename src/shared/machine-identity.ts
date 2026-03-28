@@ -31,12 +31,12 @@ export function getLocalIp(): string {
 
 /**
  * Load or create a persistent machine identity.
- * Stored in ~/.claude-multi-boot/identity.json so it survives across sessions.
+ * Stored in ~/.claude-swarm/identity.json so it survives across sessions.
  */
 export async function getMachineIdentity(label?: string): Promise<MachineIdentity> {
   const configDir = join(
     process.env.HOME ?? process.env.USERPROFILE ?? "/tmp",
-    ".claude-multi-boot"
+    ".claude-swarm"
   );
   const identityPath = join(configDir, "identity.json");
 
@@ -81,7 +81,7 @@ export function generateMachineContext(
 ): string {
   const allMachines = [localIdentity, ...peers];
   const lines = [
-    "## Multi-Machine Sync (claude-multi-boot)",
+    "## Multi-Machine Sync (claude-swarm)",
     "",
     `**This machine:** ${formatMachineId(localIdentity)}`,
     "",

@@ -16,7 +16,7 @@ import { DEFAULT_PORT, RoomConfig, PeerInfo } from "./shared/types.js";
 const program = new Command();
 
 program
-  .name("claude-multi-boot")
+  .name("claude-swarm")
   .description("Sync Claude Code sessions across multiple machines")
   .version("0.1.0");
 
@@ -30,7 +30,7 @@ program
     const server = new SyncServer();
     server.start(port);
 
-    console.log(chalk.green.bold("\n  claude-multi-boot relay server\n"));
+    console.log(chalk.green.bold("\n  claude-swarm relay server\n"));
     console.log(`  Listening on: ${chalk.cyan(`ws://0.0.0.0:${port}`)}`);
     console.log(`  Share this address with other machines to connect.\n`);
 
@@ -62,20 +62,20 @@ program
       machine: identity,
     };
 
-    const configPath = join(projectPath, ".claude-multi-boot.json");
+    const configPath = join(projectPath, ".claude-swarm.json");
     await writeFile(configPath, JSON.stringify(config, null, 2));
 
-    console.log(chalk.green.bold("\n  claude-multi-boot initialized!\n"));
+    console.log(chalk.green.bold("\n  claude-swarm initialized!\n"));
     console.log(`  Config:   ${chalk.dim(configPath)}`);
     console.log(`  Room ID:  ${chalk.cyan(roomId)}`);
     console.log(`  Server:   ${chalk.cyan(opts.server)}`);
     console.log(`  Machine:  ${chalk.yellow(formatMachineId(identity))}`);
     console.log();
     console.log(chalk.dim("  On another machine, run:"));
-    console.log(`  ${chalk.white(`claude-multi-boot init --server ${opts.server} --room ${roomId}`)}`);
+    console.log(`  ${chalk.white(`claude-swarm init --server ${opts.server} --room ${roomId}`)}`);
     console.log();
     console.log(chalk.dim("  Then start syncing:"));
-    console.log(`  ${chalk.white("claude-multi-boot sync")}`);
+    console.log(`  ${chalk.white("claude-swarm sync")}`);
     console.log();
   });
 
@@ -86,10 +86,10 @@ program
   .option("--project <path>", "Project path", process.cwd())
   .action(async (opts) => {
     const projectPath = resolve(opts.project);
-    const configPath = join(projectPath, ".claude-multi-boot.json");
+    const configPath = join(projectPath, ".claude-swarm.json");
 
     if (!existsSync(configPath)) {
-      console.error(chalk.red("No .claude-multi-boot.json found. Run 'claude-multi-boot init' first."));
+      console.error(chalk.red("No .claude-swarm.json found. Run 'claude-swarm init' first."));
       process.exit(1);
     }
 
@@ -100,7 +100,7 @@ program
     // Register local machine color first (always index 0)
     colorMap.getColor(identity.peerId);
 
-    console.log(chalk.green.bold("\n  claude-multi-boot sync\n"));
+    console.log(chalk.green.bold("\n  claude-swarm sync\n"));
     console.log(`  Machine:  ${colorMap.formatMessage(identity.peerId, identity.label, formatMachineId(identity))}`);
     console.log(`  Room:     ${chalk.cyan(config.roomId)}`);
     console.log(`  Server:   ${chalk.cyan(config.serverUrl)}`);
@@ -189,10 +189,10 @@ program
   .option("--project <path>", "Project path", process.cwd())
   .action(async (opts) => {
     const projectPath = resolve(opts.project);
-    const configPath = join(projectPath, ".claude-multi-boot.json");
+    const configPath = join(projectPath, ".claude-swarm.json");
 
     if (!existsSync(configPath)) {
-      console.log(chalk.yellow("Not initialized. Run 'claude-multi-boot init' first."));
+      console.log(chalk.yellow("Not initialized. Run 'claude-swarm init' first."));
       process.exit(0);
     }
 
@@ -200,7 +200,7 @@ program
     const identity = await getMachineIdentity();
     const statusColorMap = new MachineColorMap();
 
-    console.log(chalk.bold("\n  claude-multi-boot status\n"));
+    console.log(chalk.bold("\n  claude-swarm status\n"));
     console.log(`  Machine:  ${statusColorMap.formatMessage(identity.peerId, identity.label, formatMachineId(identity))}`);
     console.log(`  Color:    ${statusColorMap.getColor(identity.peerId)(statusColorMap.getColorName(identity.peerId))}`);
     console.log(`  Room:     ${chalk.cyan(config.roomId)}`);
@@ -225,7 +225,7 @@ program
       settings = JSON.parse(await readFile(settingsPath, "utf-8"));
     }
 
-    const distDir = join(projectPath, "node_modules", "claude-multi-boot", "dist");
+    const distDir = join(projectPath, "node_modules", "claude-swarm", "dist");
     const hooksDir = existsSync(distDir) ? distDir : join(projectPath, "dist");
 
     const hooks: Record<string, unknown[]> = (settings.hooks as Record<string, unknown[]>) ?? {};
@@ -293,8 +293,8 @@ async function updateClaudeContext(
     }));
 
   const contextBlock = generateMachineContext(localIdentity, peerMachines);
-  const marker = "<!-- claude-multi-boot:start -->";
-  const endMarker = "<!-- claude-multi-boot:end -->";
+  const marker = "<!-- claude-swarm:start -->";
+  const endMarker = "<!-- claude-swarm:end -->";
   const wrappedBlock = `${marker}\n${contextBlock}\n${endMarker}`;
 
   if (content.includes(marker)) {

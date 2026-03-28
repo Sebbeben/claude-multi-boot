@@ -1,4 +1,4 @@
-# claude-multi-boot
+# claude-swarm
 
 Sync Claude Code sessions across multiple machines in real-time. Run one Claude conversation and keep context, memory, and session events synchronized across all your development machines.
 
@@ -27,7 +27,7 @@ Supports **unlimited machines** in a single room — not just 2!
 
 ## Machine Identity
 
-Each machine gets a persistent identity stored in `~/.claude-multi-boot/identity.json`:
+Each machine gets a persistent identity stored in `~/.claude-swarm/identity.json`:
 - **Label** — human-readable name (e.g., "work-laptop", "home-desktop")
 - **Hostname** — OS hostname
 - **IP** — local network IP address
@@ -74,8 +74,8 @@ Run this on **every machine** you want to sync:
 
 ```bash
 # Clone the repo
-git clone https://github.com/sebbeben/claude-multi-boot.git
-cd claude-multi-boot
+git clone https://github.com/sebbeben/claude-swarm.git
+cd claude-swarm
 
 # Install dependencies
 npm install
@@ -83,16 +83,16 @@ npm install
 # Build from source
 npm run build
 
-# Link globally so "claude-multi-boot" works from anywhere
+# Link globally so "claude-swarm" works from anywhere
 npm link
 ```
 
-After linking, the `claude-multi-boot` command is available system-wide.
+After linking, the `claude-swarm` command is available system-wide.
 
 ### Option B: Install from npm (once published)
 
 ```bash
-npm install -g claude-multi-boot
+npm install -g claude-swarm
 ```
 
 ### Option C: Use without global install
@@ -100,7 +100,7 @@ npm install -g claude-multi-boot
 If you don't want to install globally, you can run commands directly:
 
 ```bash
-cd /path/to/claude-multi-boot
+cd /path/to/claude-swarm
 node dist/cli.js serve
 node dist/cli.js init --server ws://your-server:24680
 node dist/cli.js sync
@@ -109,10 +109,10 @@ node dist/cli.js sync
 ### Verify installation
 
 ```bash
-claude-multi-boot --version
+claude-swarm --version
 # 0.1.0
 
-claude-multi-boot --help
+claude-swarm --help
 ```
 
 ## Quick Start
@@ -122,7 +122,7 @@ claude-multi-boot --help
 Pick **one machine** that's reachable by all your dev machines (can be a VPS, cloud VM, or any machine on your network):
 
 ```bash
-claude-multi-boot serve --port 24680
+claude-swarm serve --port 24680
 ```
 
 Leave this running. It's the central hub all machines connect to.
@@ -131,10 +131,10 @@ Leave this running. It's the central hub all machines connect to.
 
 ```bash
 cd /your/project
-claude-multi-boot init --server ws://your-server-ip:24680 --label "work-laptop"
+claude-swarm init --server ws://your-server-ip:24680 --label "work-laptop"
 ```
 
-This creates `.claude-multi-boot.json` and outputs a room ID. **Copy the room ID** — you'll need it for every other machine.
+This creates `.claude-swarm.json` and outputs a room ID. **Copy the room ID** — you'll need it for every other machine.
 
 ### 3. Initialize on Machine B (and C, D, ...)
 
@@ -142,7 +142,7 @@ Use the **same room ID** from Machine A:
 
 ```bash
 cd /your/project
-claude-multi-boot init --server ws://your-server-ip:24680 --room <room-id> --label "home-desktop"
+claude-swarm init --server ws://your-server-ip:24680 --room <room-id> --label "home-desktop"
 ```
 
 Repeat for as many machines as you want — there's no limit.
@@ -152,7 +152,7 @@ Repeat for as many machines as you want — there's no limit.
 Run this on **each machine**:
 
 ```bash
-claude-multi-boot sync
+claude-swarm sync
 ```
 
 You'll see the colored activity feed showing all connected machines. Type messages to chat between machines.
@@ -162,7 +162,7 @@ You'll see the colored activity feed showing all connected machines. Type messag
 For automatic session event broadcasting when Claude edits files or runs commands:
 
 ```bash
-claude-multi-boot install-hooks
+claude-swarm install-hooks
 ```
 
 This writes hook config to `.claude/settings.local.json` in your project.
@@ -181,15 +181,15 @@ This writes hook config to `.claude/settings.local.json` in your project.
 
 | Command | Description |
 |---------|-------------|
-| `claude-multi-boot serve` | Start the relay server |
-| `claude-multi-boot init` | Initialize sync for a project |
-| `claude-multi-boot sync` | Start syncing with the room |
-| `claude-multi-boot status` | Show current sync config |
-| `claude-multi-boot install-hooks` | Install Claude Code hooks |
+| `claude-swarm serve` | Start the relay server |
+| `claude-swarm init` | Initialize sync for a project |
+| `claude-swarm sync` | Start syncing with the room |
+| `claude-swarm status` | Show current sync config |
+| `claude-swarm install-hooks` | Install Claude Code hooks |
 
 ## Configuration
 
-### `.claude-multi-boot.json` (per project)
+### `.claude-swarm.json` (per project)
 
 ```json
 {
@@ -212,7 +212,7 @@ This writes hook config to `.claude/settings.local.json` in your project.
 }
 ```
 
-### `~/.claude-multi-boot/identity.json` (per machine)
+### `~/.claude-swarm/identity.json` (per machine)
 
 Persistent machine identity. Auto-generated on first run, or set with `--label`.
 

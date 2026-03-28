@@ -13,7 +13,7 @@
  *       "matcher": "",
  *       "hooks": [{
  *         "type": "command",
- *         "command": "node /path/to/claude-multi-boot/dist/hooks/post-tool-use.js"
+ *         "command": "node /path/to/claude-swarm/dist/hooks/post-tool-use.js"
  *       }]
  *     }]
  *   }
@@ -45,7 +45,7 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
-  const configPath = join(input.cwd, ".claude-multi-boot.json");
+  const configPath = join(input.cwd, ".claude-swarm.json");
   if (!existsSync(configPath)) {
     process.exit(0);
   }
