@@ -279,16 +279,16 @@ async function updateClaudeContext(
     content = await readFile(claudeMdPath, "utf-8");
   }
 
-  // Build peer machine identities (we only have PeerInfo, map to partial MachineIdentity)
+  // Build peer machine identities from PeerInfo (which now carries full identity)
   const peerMachines: MachineIdentity[] = peers
     .filter((p) => p.id !== localIdentity.peerId)
     .map((p) => ({
       peerId: p.id,
-      label: p.hostname,
+      label: p.label ?? p.hostname,
       hostname: p.hostname,
-      ip: "connected",
-      platform: "unknown",
-      arch: "unknown",
+      ip: p.ip ?? "unknown",
+      platform: p.platform ?? "unknown",
+      arch: p.arch ?? "unknown",
       registeredAt: new Date(p.joinedAt).toISOString(),
     }));
 

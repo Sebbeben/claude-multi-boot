@@ -217,17 +217,20 @@ export class SyncServer {
   }
 }
 
-// Direct execution
-const port = parseInt(process.env.PORT ?? String(DEFAULT_PORT), 10);
-const server = new SyncServer();
-server.start(port);
+// Only auto-start when run directly (not when imported by CLI)
+const isDirectExecution = process.argv[1]?.endsWith("server/index.js");
+if (isDirectExecution) {
+  const port = parseInt(process.env.PORT ?? String(DEFAULT_PORT), 10);
+  const server = new SyncServer();
+  server.start(port);
 
-process.on("SIGINT", () => {
-  server.stop();
-  process.exit(0);
-});
+  process.on("SIGINT", () => {
+    server.stop();
+    process.exit(0);
+  });
 
-process.on("SIGTERM", () => {
-  server.stop();
-  process.exit(0);
-});
+  process.on("SIGTERM", () => {
+    server.stop();
+    process.exit(0);
+  });
+}

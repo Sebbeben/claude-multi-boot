@@ -25,7 +25,8 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import WebSocket from "ws";
 import { SyncMessage } from "../shared/types.js";
-import { generatePeerId, timestamp } from "../shared/utils.js";
+import { timestamp } from "../shared/utils.js";
+import { getMachineIdentity } from "../shared/machine-identity.js";
 
 interface HookInput {
   session_id: string;
@@ -57,6 +58,7 @@ async function main(): Promise<void> {
 
   try {
     const config = JSON.parse(await readFile(configPath, "utf-8"));
+    const identity = await getMachineIdentity();
 
     // Quick fire-and-forget WebSocket message
     const ws = new WebSocket(config.serverUrl);
@@ -71,7 +73,7 @@ async function main(): Promise<void> {
         const msg: SyncMessage = {
           type: "session-event",
           roomId: config.roomId,
-          peerId: generatePeerId(),
+          peerId: identity.peerId,
           timestamp: timestamp(),
           payload: {
             event: "tool-use",

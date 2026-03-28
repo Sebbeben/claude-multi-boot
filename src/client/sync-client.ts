@@ -15,7 +15,7 @@ import {
   RoomConfig,
   HEARTBEAT_INTERVAL,
 } from "../shared/types.js";
-import { generatePeerId, hashContent, timestamp, log } from "../shared/utils.js";
+import { hashContent, timestamp, log } from "../shared/utils.js";
 import { MachineIdentity } from "../shared/machine-identity.js";
 
 export interface ActivityEvent {
@@ -243,12 +243,11 @@ export class SyncClient {
   }
 
   private startWatching(): void {
-    const watchPaths = this.config.syncPaths.map((p) =>
+    const watchSet = new Set(this.config.syncPaths);
+    watchSet.add("CLAUDE.md"); // Ensure CLAUDE.md is always watched
+    const watchPaths = [...watchSet].map((p) =>
       join(this.config.projectPath, p)
     );
-
-    // Also watch CLAUDE.md
-    watchPaths.push(join(this.config.projectPath, "CLAUDE.md"));
 
     this.watcher = watch(watchPaths, {
       ignoreInitial: true,

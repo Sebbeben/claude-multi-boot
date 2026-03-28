@@ -57,9 +57,12 @@ async function main(): Promise<void> {
     // Write sync status to CLAUDE_ENV_FILE if available
     const envFile = process.env.CLAUDE_ENV_FILE;
     if (envFile) {
+      // Sanitize values to prevent shell injection
+      const safeRoom = config.roomId.replace(/[^a-zA-Z0-9_-]/g, "");
+      const safeServer = config.serverUrl.replace(/['"\\$`!]/g, "");
       await writeFile(
         envFile,
-        `export CLAUDE_MULTI_BOOT_ROOM="${config.roomId}"\nexport CLAUDE_MULTI_BOOT_SERVER="${config.serverUrl}"\n`,
+        `export CLAUDE_MULTI_BOOT_ROOM="${safeRoom}"\nexport CLAUDE_MULTI_BOOT_SERVER="${safeServer}"\n`,
         { flag: "a" }
       );
     }
