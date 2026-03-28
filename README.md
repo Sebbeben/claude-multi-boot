@@ -60,55 +60,112 @@ Each machine gets a **persistent unique color** from a 12-color palette (cyan, m
 
 You can also **type messages directly** in the sync terminal to chat between machines.
 
-## Quick Start
+## Prerequisites
 
-### 1. Install
+- **Node.js** >= 18.0.0
+- **npm** >= 9.0.0
+- **Claude Code CLI** installed on each machine ([install guide](https://docs.anthropic.com/en/docs/claude-code))
+
+## Installation
+
+### Option A: Install from GitHub (recommended)
+
+Run this on **every machine** you want to sync:
+
+```bash
+# Clone the repo
+git clone https://github.com/sebbeben/claude-multi-boot.git
+cd claude-multi-boot
+
+# Install dependencies
+npm install
+
+# Build from source
+npm run build
+
+# Link globally so "claude-multi-boot" works from anywhere
+npm link
+```
+
+After linking, the `claude-multi-boot` command is available system-wide.
+
+### Option B: Install from npm (once published)
 
 ```bash
 npm install -g claude-multi-boot
-# or use locally in your project
-npm install claude-multi-boot
 ```
 
-### 2. Start the relay server
+### Option C: Use without global install
 
-On any machine reachable by all your dev machines:
+If you don't want to install globally, you can run commands directly:
+
+```bash
+cd /path/to/claude-multi-boot
+node dist/cli.js serve
+node dist/cli.js init --server ws://your-server:24680
+node dist/cli.js sync
+```
+
+### Verify installation
+
+```bash
+claude-multi-boot --version
+# 0.1.0
+
+claude-multi-boot --help
+```
+
+## Quick Start
+
+### 1. Start the relay server
+
+Pick **one machine** that's reachable by all your dev machines (can be a VPS, cloud VM, or any machine on your network):
 
 ```bash
 claude-multi-boot serve --port 24680
 ```
 
-### 3. Initialize on Machine A
+Leave this running. It's the central hub all machines connect to.
+
+### 2. Initialize on Machine A
 
 ```bash
 cd /your/project
-claude-multi-boot init --server ws://your-server:24680 --label "work-laptop"
+claude-multi-boot init --server ws://your-server-ip:24680 --label "work-laptop"
 ```
 
-This creates `.claude-multi-boot.json` and outputs a room ID.
+This creates `.claude-multi-boot.json` and outputs a room ID. **Copy the room ID** — you'll need it for every other machine.
 
-### 4. Initialize on Machine B
+### 3. Initialize on Machine B (and C, D, ...)
 
-Use the same room ID from Machine A:
+Use the **same room ID** from Machine A:
 
 ```bash
 cd /your/project
-claude-multi-boot init --server ws://your-server:24680 --room <room-id> --label "home-desktop"
+claude-multi-boot init --server ws://your-server-ip:24680 --room <room-id> --label "home-desktop"
 ```
 
-### 5. Start syncing on both machines
+Repeat for as many machines as you want — there's no limit.
+
+### 4. Start syncing on all machines
+
+Run this on **each machine**:
 
 ```bash
 claude-multi-boot sync
 ```
 
-### 6. (Optional) Install Claude Code hooks
+You'll see the colored activity feed showing all connected machines. Type messages to chat between machines.
 
-For automatic session event broadcasting:
+### 5. (Optional) Install Claude Code hooks
+
+For automatic session event broadcasting when Claude edits files or runs commands:
 
 ```bash
 claude-multi-boot install-hooks
 ```
+
+This writes hook config to `.claude/settings.local.json` in your project.
 
 ## What Gets Synced
 
