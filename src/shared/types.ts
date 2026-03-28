@@ -15,7 +15,9 @@ export type MessageType =
   | "file-change"
   | "peer-list"
   | "heartbeat"
-  | "request-sync";
+  | "request-sync"
+  | "chat-message"
+  | "activity";
 
 export interface MemoryUpdatePayload {
   filePath: string;
@@ -44,8 +46,25 @@ export interface FileChangePayload {
 export interface PeerInfo {
   id: string;
   hostname: string;
+  label: string;
+  ip: string;
+  platform: string;
+  arch: string;
   joinedAt: number;
   lastSeen: number;
+}
+
+export interface ChatMessagePayload {
+  text: string;
+  machineLabel: string;
+  machineIp: string;
+}
+
+export interface ActivityPayload {
+  action: string;
+  detail: string;
+  machineLabel: string;
+  machineIp: string;
 }
 
 export interface PeerListPayload {

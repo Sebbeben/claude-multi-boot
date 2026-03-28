@@ -5,12 +5,20 @@ Sync Claude Code sessions across multiple machines in real-time. Run one Claude 
 ## How It Works
 
 ```
-┌─────────────┐     WebSocket     ┌───────────────┐     WebSocket     ┌─────────────┐
-│  Machine A  │◄──────────────────┤  Relay Server ├──────────────────►│  Machine B  │
+┌─────────────┐                   ┌───────────────┐                   ┌─────────────┐
+│  Machine A  │◄──── WebSocket ──►│  Relay Server │◄──── WebSocket ──►│  Machine B  │
 │  Claude CLI │                   │  (central hub)│                   │  Claude CLI │
-│  + hooks    │                   └───────────────┘                   │  + hooks    │
-└─────────────┘                                                       └─────────────┘
+│  + hooks    │                   └───────┬───────┘                   │  + hooks    │
+└─────────────┘                           │                           └─────────────┘
+                                          │ WebSocket
+                                ┌─────────┴─────────┐
+                                │    Machine C ...   │
+                                │    Claude CLI      │
+                                │    + hooks         │
+                                └────────────────────┘
 ```
+
+Supports **unlimited machines** in a single room — not just 2!
 
 1. A lightweight **relay server** runs on any reachable machine (or cloud VM)
 2. Each machine runs a **sync client** that watches for file changes
@@ -28,9 +36,29 @@ Each machine gets a persistent identity stored in `~/.claude-multi-boot/identity
 Claude sees this in CLAUDE.md and will never confuse machines:
 ```markdown
 **This machine:** work-laptop (192.168.1.10, linux/x64)
+**Total machines in room:** 3
 **Connected peers:**
 - home-desktop (192.168.1.20, darwin/arm64)
+- cloud-vm (10.0.0.5, linux/x64)
 ```
+
+## Colored Activity Feed
+
+Every message in the sync terminal is prefixed with the machine's hostname in a unique color:
+
+```
+12:34:56 + (work-laptop) [192.168.1.10] joined the room      <- cyan
+12:34:57 + (home-desktop) [192.168.1.20] joined the room     <- magenta
+12:34:58 + (cloud-vm) [10.0.0.5] joined the room             <- yellow
+12:35:01 > (work-laptop) [192.168.1.10] starting frontend work
+12:35:12 ~ (home-desktop) [192.168.1.20] updated src/api.ts
+12:35:20 * (cloud-vm) [10.0.0.5] Ran: npm test
+12:35:25 > (home-desktop) [192.168.1.20] API refactor done!
+```
+
+Each machine gets a **persistent unique color** from a 12-color palette (cyan, magenta, yellow, green, blue, red, orange, teal, purple, gold, sky-blue, coral). Colors cycle for 13+ machines.
+
+You can also **type messages directly** in the sync terminal to chat between machines.
 
 ## Quick Start
 

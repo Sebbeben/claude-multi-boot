@@ -79,23 +79,27 @@ export function generateMachineContext(
   localIdentity: MachineIdentity,
   peers: MachineIdentity[]
 ): string {
+  const allMachines = [localIdentity, ...peers];
   const lines = [
     "## Multi-Machine Sync (claude-multi-boot)",
     "",
     `**This machine:** ${formatMachineId(localIdentity)}`,
     "",
+    `**Total machines in room:** ${allMachines.length}`,
+    "",
   ];
 
   if (peers.length > 0) {
     lines.push("**Connected peers:**");
-    for (const peer of peers) {
-      lines.push(`- ${formatMachineId(peer)}`);
+    for (let i = 0; i < peers.length; i++) {
+      lines.push(`- ${formatMachineId(peers[i])}`);
     }
     lines.push("");
     lines.push(
-      "IMPORTANT: Each machine listed above is a separate physical/virtual machine. " +
+      "IMPORTANT: Each machine listed above is a separate physical/virtual machine with its own IP address. " +
       "Do NOT confuse file paths, environments, or running processes between machines. " +
-      "When referencing work done on a specific machine, always prefix with the machine label."
+      "When referencing work done on a specific machine, always prefix with the machine label. " +
+      "The chat activity feed shows (hostname) before each message so you can identify the source machine."
     );
   } else {
     lines.push("No other machines connected yet.");

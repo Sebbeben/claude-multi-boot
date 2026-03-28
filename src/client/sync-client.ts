@@ -3,23 +3,35 @@ import { watch } from "chokidar";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
-import { hostname } from "node:os";
 import {
   SyncMessage,
   MemoryUpdatePayload,
   ClaudeMdUpdatePayload,
   FileChangePayload,
+  ChatMessagePayload,
+  ActivityPayload,
   PeerInfo,
   PeerListPayload,
   RoomConfig,
   HEARTBEAT_INTERVAL,
 } from "../shared/types.js";
 import { generatePeerId, hashContent, timestamp, log } from "../shared/utils.js";
+import { MachineIdentity } from "../shared/machine-identity.js";
+
+export interface ActivityEvent {
+  peerId: string;
+  label: string;
+  ip: string;
+  type: "chat" | "file-sync" | "session-event" | "join" | "leave" | "activity";
+  message: string;
+  timestamp: number;
+}
 
 export class SyncClient {
   private ws: WebSocket | null = null;
   private peerId: string;
   private config: RoomConfig;
+  private machineIdentity: MachineIdentity;
   private watcher: ReturnType<typeof watch> | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -29,11 +41,19 @@ export class SyncClient {
   private peers: PeerInfo[] = [];
   private connected = false;
   private onPeerUpdate?: (peers: PeerInfo[]) => void;
+  private onActivity?: (event: ActivityEvent) => void;
 
-  constructor(config: RoomConfig, onPeerUpdate?: (peers: PeerInfo[]) => void) {
-    this.peerId = generatePeerId();
+  constructor(
+    config: RoomConfig,
+    machineIdentity: MachineIdentity,
+    onPeerUpdate?: (peers: PeerInfo[]) => void,
+    onActivity?: (event: ActivityEvent) => void,
+  ) {
+    this.peerId = machineIdentity.peerId;
     this.config = config;
+    this.machineIdentity = machineIdentity;
     this.onPeerUpdate = onPeerUpdate;
+    this.onActivity = onActivity;
   }
 
   async connect(): Promise<void> {
@@ -53,7 +73,13 @@ export class SyncClient {
           roomId: this.config.roomId,
           peerId: this.peerId,
           timestamp: timestamp(),
-          payload: { hostname: hostname() },
+          payload: {
+            hostname: this.machineIdentity.hostname,
+            label: this.machineIdentity.label,
+            ip: this.machineIdentity.ip,
+            platform: this.machineIdentity.platform,
+            arch: this.machineIdentity.arch,
+          },
         });
 
         this.startHeartbeat();
@@ -89,19 +115,35 @@ export class SyncClient {
   private async handleMessage(msg: SyncMessage): Promise<void> {
     if (msg.peerId === this.peerId) return;
 
+    const peerLabel = this.getPeerLabel(msg.peerId);
+    const peerIp = this.getPeerIp(msg.peerId);
+
     switch (msg.type) {
       case "peer-list": {
         const payload = msg.payload as PeerListPayload;
+        const oldPeerIds = new Set(this.peers.map((p) => p.id));
         this.peers = payload.peers;
-        log("info", `Peers in room: ${this.peers.map((p) => p.hostname).join(", ")}`);
         this.onPeerUpdate?.(this.peers);
+
+        // Emit join/leave activity for new/removed peers
+        for (const peer of this.peers) {
+          if (peer.id !== this.peerId && !oldPeerIds.has(peer.id)) {
+            this.emitActivity(peer.id, peer.label, peer.ip, "join", `joined the room`);
+          }
+        }
+        const newPeerIds = new Set(this.peers.map((p) => p.id));
+        for (const oldPeer of oldPeerIds) {
+          if (!newPeerIds.has(oldPeer) && oldPeer !== this.peerId) {
+            this.emitActivity(oldPeer, oldPeer, "", "leave", `left the room`);
+          }
+        }
         break;
       }
 
       case "memory-update": {
         const payload = msg.payload as MemoryUpdatePayload;
         await this.applyFileUpdate(payload.filePath, payload.content, payload.hash);
-        log("info", `Memory synced: ${payload.filePath} from ${msg.peerId}`);
+        this.emitActivity(msg.peerId, peerLabel, peerIp, "file-sync", `synced memory: ${payload.filePath}`);
         break;
       }
 
@@ -109,14 +151,14 @@ export class SyncClient {
         const payload = msg.payload as ClaudeMdUpdatePayload;
         const targetPath = join(this.config.projectPath, "CLAUDE.md");
         await this.applyFileUpdate(targetPath, payload.content, payload.hash);
-        log("info", `CLAUDE.md synced from ${msg.peerId}`);
+        this.emitActivity(msg.peerId, peerLabel, peerIp, "file-sync", `synced CLAUDE.md`);
         break;
       }
 
       case "file-change": {
         const payload = msg.payload as FileChangePayload;
         await this.applyFileChange(payload);
-        log("info", `File synced: ${payload.relativePath} (${payload.action})`);
+        this.emitActivity(msg.peerId, peerLabel, peerIp, "file-sync", `${payload.action}d ${payload.relativePath}`);
         break;
       }
 
@@ -128,10 +170,52 @@ export class SyncClient {
         break;
       }
 
-      case "session-event":
-        log("debug", `Session event from ${msg.peerId}: ${(msg.payload as { event: string }).event}`);
+      case "session-event": {
+        const evtPayload = msg.payload as { event: string; data?: { tool?: string; input?: string } };
+        const detail = evtPayload.data?.input ?? evtPayload.event;
+        this.emitActivity(msg.peerId, peerLabel, peerIp, "session-event", detail);
         break;
+      }
+
+      case "chat-message": {
+        const chatPayload = msg.payload as ChatMessagePayload;
+        this.emitActivity(msg.peerId, chatPayload.machineLabel, chatPayload.machineIp, "chat", chatPayload.text);
+        break;
+      }
+
+      case "activity": {
+        const actPayload = msg.payload as ActivityPayload;
+        this.emitActivity(msg.peerId, actPayload.machineLabel, actPayload.machineIp, "activity", `${actPayload.action}: ${actPayload.detail}`);
+        break;
+      }
     }
+  }
+
+  private getPeerLabel(peerId: string): string {
+    const peer = this.peers.find((p) => p.id === peerId);
+    return peer?.label ?? peer?.hostname ?? peerId;
+  }
+
+  private getPeerIp(peerId: string): string {
+    const peer = this.peers.find((p) => p.id === peerId);
+    return peer?.ip ?? "";
+  }
+
+  private emitActivity(
+    peerId: string,
+    label: string,
+    ip: string,
+    type: ActivityEvent["type"],
+    message: string,
+  ): void {
+    this.onActivity?.({
+      peerId,
+      label,
+      ip,
+      type,
+      message,
+      timestamp: Date.now(),
+    });
   }
 
   private async applyFileUpdate(filePath: string, content: string, hash: string): Promise<void> {
@@ -246,6 +330,43 @@ export class SyncClient {
       timestamp: timestamp(),
       payload: { event, sessionId: this.config.roomId, data },
     });
+  }
+
+  sendChat(text: string): void {
+    const payload: ChatMessagePayload = {
+      text,
+      machineLabel: this.machineIdentity.label,
+      machineIp: this.machineIdentity.ip,
+    };
+    this.send({
+      type: "chat-message",
+      roomId: this.config.roomId,
+      peerId: this.peerId,
+      timestamp: timestamp(),
+      payload,
+    });
+    // Also emit locally so the sender sees their own message
+    this.emitActivity(this.peerId, this.machineIdentity.label, this.machineIdentity.ip, "chat", text);
+  }
+
+  sendBroadcastActivity(action: string, detail: string): void {
+    const payload: ActivityPayload = {
+      action,
+      detail,
+      machineLabel: this.machineIdentity.label,
+      machineIp: this.machineIdentity.ip,
+    };
+    this.send({
+      type: "activity",
+      roomId: this.config.roomId,
+      peerId: this.peerId,
+      timestamp: timestamp(),
+      payload,
+    });
+  }
+
+  getLocalIdentity(): MachineIdentity {
+    return this.machineIdentity;
   }
 
   private async sendCurrentState(): Promise<void> {

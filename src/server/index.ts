@@ -80,9 +80,21 @@ export class SyncServer {
       this.peers.delete(tempId);
     }
 
+    const joinPayload = msg.payload as {
+      hostname?: string;
+      label?: string;
+      ip?: string;
+      platform?: string;
+      arch?: string;
+    };
+
     const peerInfo: PeerInfo = {
       id: peerId,
-      hostname: (msg.payload as { hostname?: string })?.hostname ?? "unknown",
+      hostname: joinPayload.hostname ?? "unknown",
+      label: joinPayload.label ?? joinPayload.hostname ?? "unknown",
+      ip: joinPayload.ip ?? "unknown",
+      platform: joinPayload.platform ?? "unknown",
+      arch: joinPayload.arch ?? "unknown",
       joinedAt: timestamp(),
       lastSeen: timestamp(),
     };

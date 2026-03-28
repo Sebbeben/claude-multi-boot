@@ -2,12 +2,14 @@
 
 import { Command } from "commander";
 import chalk from "chalk";
+import { createInterface } from "node:readline";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { SyncServer } from "./server/index.js";
-import { SyncClient } from "./client/sync-client.js";
+import { SyncClient, type ActivityEvent } from "./client/sync-client.js";
 import { getMachineIdentity, formatMachineId, generateMachineContext, MachineIdentity } from "./shared/machine-identity.js";
+import { MachineColorMap } from "./shared/colors.js";
 import { generateRoomId, log } from "./shared/utils.js";
 import { DEFAULT_PORT, RoomConfig, PeerInfo } from "./shared/types.js";
 
@@ -93,31 +95,91 @@ program
 
     const config = JSON.parse(await readFile(configPath, "utf-8")) as RoomConfig & { machine: MachineIdentity };
     const identity = await getMachineIdentity();
+    const colorMap = new MachineColorMap();
+
+    // Register local machine color first (always index 0)
+    colorMap.getColor(identity.peerId);
 
     console.log(chalk.green.bold("\n  claude-multi-boot sync\n"));
-    console.log(`  Machine:  ${chalk.yellow(formatMachineId(identity))}`);
+    console.log(`  Machine:  ${colorMap.formatMessage(identity.peerId, identity.label, formatMachineId(identity))}`);
     console.log(`  Room:     ${chalk.cyan(config.roomId)}`);
     console.log(`  Server:   ${chalk.cyan(config.serverUrl)}`);
     console.log();
 
-    const client = new SyncClient(config, (peers: PeerInfo[]) => {
-      updateClaudeContext(projectPath, identity, peers);
-    });
+    // ── Activity feed renderer ──
+    function renderActivity(event: ActivityEvent): void {
+      const ts = new Date(event.timestamp).toISOString().slice(11, 19);
+      const tag = colorMap.formatTag(event.peerId, event.label);
+      const color = colorMap.getColor(event.peerId);
+
+      const icons: Record<ActivityEvent["type"], string> = {
+        chat: ">",
+        "file-sync": "~",
+        "session-event": "*",
+        join: "+",
+        leave: "-",
+        activity: "!",
+      };
+      const icon = icons[event.type] ?? " ";
+
+      const ipSuffix = event.ip ? chalk.dim(` [${event.ip}]`) : "";
+      console.log(`  ${chalk.dim(ts)} ${icon} ${tag}${ipSuffix} ${color(event.message)}`);
+    }
+
+    // ── Peer list renderer ──
+    function renderPeerList(peers: PeerInfo[]): void {
+      console.log();
+      console.log(chalk.bold("  Connected machines:"));
+      for (const peer of peers) {
+        const isLocal = peer.id === identity.peerId;
+        const tag = colorMap.formatTag(peer.id, peer.label);
+        const suffix = isLocal ? chalk.dim(" (you)") : "";
+        const ipInfo = chalk.dim(`${peer.ip}, ${peer.platform}/${peer.arch}`);
+        console.log(`    ${tag} ${ipInfo}${suffix}`);
+      }
+      console.log();
+    }
+
+    const client = new SyncClient(
+      config,
+      identity,
+      (peers: PeerInfo[]) => {
+        // Register colors for all peers
+        for (const peer of peers) {
+          colorMap.getColor(peer.id);
+        }
+        renderPeerList(peers);
+        updateClaudeContext(projectPath, identity, peers);
+      },
+      (event: ActivityEvent) => {
+        renderActivity(event);
+      },
+    );
 
     try {
       await client.connect();
-      console.log(chalk.green("  Connected! Watching for changes...\n"));
-      console.log(chalk.dim("  Press Ctrl+C to stop.\n"));
+      console.log(chalk.green("  Connected! Watching for changes..."));
+      console.log(chalk.dim("  Type a message and press Enter to chat. Ctrl+C to stop.\n"));
+
+      // ── Interactive chat input ──
+      const rl = createInterface({ input: process.stdin, output: process.stdout });
+      rl.on("line", (line) => {
+        const trimmed = line.trim();
+        if (trimmed) {
+          client.sendChat(trimmed);
+        }
+      });
+
+      process.on("SIGINT", () => {
+        rl.close();
+        client.disconnect();
+        process.exit(0);
+      });
     } catch (err) {
       console.error(chalk.red(`  Failed to connect: ${err}`));
       console.error(chalk.dim("  Is the relay server running?"));
       process.exit(1);
     }
-
-    process.on("SIGINT", () => {
-      client.disconnect();
-      process.exit(0);
-    });
   });
 
 // ── status ─────────────────────────────────────────────────────────
@@ -136,9 +198,11 @@ program
 
     const config = JSON.parse(await readFile(configPath, "utf-8"));
     const identity = await getMachineIdentity();
+    const statusColorMap = new MachineColorMap();
 
     console.log(chalk.bold("\n  claude-multi-boot status\n"));
-    console.log(`  Machine:  ${chalk.yellow(formatMachineId(identity))}`);
+    console.log(`  Machine:  ${statusColorMap.formatMessage(identity.peerId, identity.label, formatMachineId(identity))}`);
+    console.log(`  Color:    ${statusColorMap.getColor(identity.peerId)(statusColorMap.getColorName(identity.peerId))}`);
     console.log(`  Room:     ${chalk.cyan(config.roomId)}`);
     console.log(`  Server:   ${chalk.cyan(config.serverUrl)}`);
     console.log();
