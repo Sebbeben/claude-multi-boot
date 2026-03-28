@@ -101,9 +101,8 @@ If you don't want to install globally, you can run commands directly:
 
 ```bash
 cd /path/to/claude-swarm
-node dist/cli.js serve
-node dist/cli.js init --server ws://your-server:24680
-node dist/cli.js sync
+node dist/cli.js host                         # Machine A
+node dist/cli.js join 192.168.1.10            # Machine B
 ```
 
 ### Verify installation
@@ -117,47 +116,50 @@ claude-swarm --help
 
 ## Quick Start
 
-### 1. Start the relay server
-
-Pick **one machine** that's reachable by all your dev machines (can be a VPS, cloud VM, or any machine on your network):
-
-```bash
-claude-swarm serve --port 24680
-```
-
-Leave this running. It's the central hub all machines connect to.
-
-### 2. Initialize on Machine A
+### Machine A — start a swarm
 
 ```bash
 cd /your/project
-claude-swarm init --server ws://your-server-ip:24680 --label "work-laptop"
+claude-swarm host
 ```
 
-This creates `.claude-swarm.json` and outputs a room ID. **Copy the room ID** — you'll need it for every other machine.
+That's it. This starts the relay server, connects you, and prints:
 
-### 3. Initialize on Machine B (and C, D, ...)
+```
+  Swarm started! Relay running on port 24680
+  Machine:  work-laptop (192.168.1.10, linux/x64)
 
-Use the **same room ID** from Machine A:
+  Others can join with:
+
+    claude-swarm join 192.168.1.10
+```
+
+### Machine B — join the swarm
 
 ```bash
 cd /your/project
-claude-swarm init --server ws://your-server-ip:24680 --room <room-id> --label "home-desktop"
+claude-swarm join 192.168.1.10
 ```
 
-Repeat for as many machines as you want — there's no limit.
+Done. You're synced. Repeat on as many machines as you want.
 
-### 4. Start syncing on all machines
-
-Run this on **each machine**:
-
-```bash
-claude-swarm sync
-```
+### That's it. Two commands.
 
 You'll see the colored activity feed showing all connected machines. Type messages to chat between machines.
 
-### 5. (Optional) Install Claude Code hooks
+### Options
+
+```bash
+# Custom port
+claude-swarm host --port 3000
+claude-swarm join 192.168.1.10 --port 3000
+
+# Custom machine label
+claude-swarm host --label "work-laptop"
+claude-swarm join 192.168.1.10 --label "home-desktop"
+```
+
+### (Optional) Install Claude Code hooks
 
 For automatic session event broadcasting when Claude edits files or runs commands:
 
@@ -181,11 +183,18 @@ This writes hook config to `.claude/settings.local.json` in your project.
 
 | Command | Description |
 |---------|-------------|
-| `claude-swarm serve` | Start the relay server |
-| `claude-swarm init` | Initialize sync for a project |
-| `claude-swarm sync` | Start syncing with the room |
+| `claude-swarm host` | Start a swarm (server + sync in one command) |
+| `claude-swarm join <ip>` | Join a swarm by IP or hostname |
 | `claude-swarm status` | Show current sync config |
 | `claude-swarm install-hooks` | Install Claude Code hooks |
+
+**Advanced** (manual control):
+
+| Command | Description |
+|---------|-------------|
+| `claude-swarm serve` | Start only the relay server |
+| `claude-swarm init` | Initialize config manually |
+| `claude-swarm sync` | Sync with existing config |
 
 ## Configuration
 
