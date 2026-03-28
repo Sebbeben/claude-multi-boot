@@ -26,48 +26,49 @@ export class SyncServer {
     log("info", `Relay server listening on ws://0.0.0.0:${port}`);
 
     this.wss.on("connection", (ws) => {
-      const tempId = generatePeerId();
-      log("info", `New connection (temp: ${tempId})`);
+      let currentPeerId = generatePeerId(); // Temp ID until join
+      log("info", `New connection (temp: ${currentPeerId})`);
 
       ws.on("message", (raw) => {
         try {
           const msg: SyncMessage = JSON.parse(raw.toString());
-          this.handleMessage(ws, msg, tempId);
+          const newPeerId = this.handleMessage(ws, msg, currentPeerId);
+          if (newPeerId) currentPeerId = newPeerId;
         } catch (e) {
           log("error", "Invalid message", e);
         }
       });
 
       ws.on("close", () => {
-        this.removePeer(tempId);
+        this.removePeer(currentPeerId);
       });
 
       ws.on("error", (err) => {
-        log("error", `WebSocket error for ${tempId}`, err.message);
-        this.removePeer(tempId);
+        log("error", `WebSocket error for ${currentPeerId}`, err.message);
+        this.removePeer(currentPeerId);
       });
     });
 
     this.heartbeatTimer = setInterval(() => this.checkHeartbeats(), HEARTBEAT_INTERVAL);
   }
 
-  private handleMessage(ws: WebSocket, msg: SyncMessage, tempId: string): void {
+  private handleMessage(ws: WebSocket, msg: SyncMessage, currentPeerId: string): string | undefined {
     switch (msg.type) {
       case "join":
-        this.handleJoin(ws, msg, tempId);
-        break;
+        this.handleJoin(ws, msg, currentPeerId);
+        return msg.peerId; // Return the real peerId so close handler uses it
 
       case "heartbeat":
         this.handleHeartbeat(msg.peerId);
-        break;
+        return undefined;
 
       case "request-sync":
         this.handleRequestSync(msg);
-        break;
+        return undefined;
 
       default:
         this.broadcast(msg.roomId, msg, msg.peerId);
-        break;
+        return undefined;
     }
   }
 
@@ -211,6 +212,12 @@ export class SyncServer {
       clearInterval(this.heartbeatTimer);
     }
     if (this.wss) {
+      // Terminate all connected clients so they get close events
+      for (const [, peer] of this.peers) {
+        peer.ws.terminate();
+      }
+      this.peers.clear();
+      this.rooms.clear();
       this.wss.close();
       log("info", "Server stopped");
     }

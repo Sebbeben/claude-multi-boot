@@ -2,7 +2,7 @@ import WebSocket from "ws";
 import { watch } from "chokidar";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { dirname, join, relative } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import {
   SyncMessage,
   MemoryUpdatePayload,
@@ -37,6 +37,7 @@ export class SyncClient {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 10;
+  private disposed = false;
   private knownHashes = new Map<string, string>();
   private peers: PeerInfo[] = [];
   private connected = false;
@@ -142,6 +143,10 @@ export class SyncClient {
 
       case "memory-update": {
         const payload = msg.payload as MemoryUpdatePayload;
+        if (!this.isPathSafe(payload.filePath)) {
+          log("warn", `Blocked memory-update path traversal: ${payload.filePath}`);
+          break;
+        }
         await this.applyFileUpdate(payload.filePath, payload.content, payload.hash);
         this.emitActivity(msg.peerId, peerLabel, peerIp, "file-sync", `synced memory: ${payload.filePath}`);
         break;
@@ -150,6 +155,7 @@ export class SyncClient {
       case "claude-md-update": {
         const payload = msg.payload as ClaudeMdUpdatePayload;
         const targetPath = join(this.config.projectPath, "CLAUDE.md");
+        if (!this.isPathSafe(targetPath)) break;
         await this.applyFileUpdate(targetPath, payload.content, payload.hash);
         this.emitActivity(msg.peerId, peerLabel, peerIp, "file-sync", `synced CLAUDE.md`);
         break;
@@ -226,8 +232,19 @@ export class SyncClient {
     this.knownHashes.set(filePath, hash);
   }
 
+  private isPathSafe(targetPath: string): boolean {
+    const resolved = resolve(targetPath);
+    const projectRoot = resolve(this.config.projectPath);
+    return resolved.startsWith(projectRoot + "/") || resolved === projectRoot;
+  }
+
   private async applyFileChange(payload: FileChangePayload): Promise<void> {
     const fullPath = join(this.config.projectPath, payload.relativePath);
+
+    if (!this.isPathSafe(fullPath)) {
+      log("warn", `Blocked path traversal attempt: ${payload.relativePath}`);
+      return;
+    }
 
     if (payload.action === "delete") {
       const { unlink } = await import("node:fs/promises");
@@ -424,6 +441,7 @@ export class SyncClient {
   }
 
   private scheduleReconnect(): void {
+    if (this.disposed) return;
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
       log("error", "Max reconnect attempts reached. Giving up.");
       return;
@@ -451,6 +469,7 @@ export class SyncClient {
   }
 
   disconnect(): void {
+    this.disposed = true;
     this.connected = false;
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
