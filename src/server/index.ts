@@ -1,10 +1,12 @@
 import { WebSocketServer, WebSocket } from "ws";
+import { createServer as createHttpsServer } from "node:https";
 import {
   SyncMessage,
   PeerInfo,
   HEARTBEAT_INTERVAL,
   PEER_TIMEOUT,
   DEFAULT_PORT,
+  MAX_MESSAGE_SIZE,
 } from "../shared/types.js";
 import { generatePeerId, timestamp, log } from "../shared/utils.js";
 
@@ -14,16 +16,60 @@ interface ConnectedPeer {
   roomId: string;
 }
 
+interface HistoryEntry {
+  msg: SyncMessage;
+  storedAt: number;
+}
+
+export interface ServerOptions {
+  /** Room token required for joining. If set, clients must include it in join payload. */
+  token?: string;
+  /** TLS key (PEM). If provided with cert, server runs wss://. */
+  tlsKey?: string;
+  /** TLS cert (PEM). */
+  tlsCert?: string;
+  /** Max history entries to keep per room for session replay. Default: 200 */
+  maxHistory?: number;
+}
+
 export class SyncServer {
   private wss: WebSocketServer | null = null;
   private peers = new Map<string, ConnectedPeer>();
   private rooms = new Map<string, Set<string>>();
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private token?: string;
+  private roomHistory = new Map<string, HistoryEntry[]>();
+  private maxHistory: number;
 
-  start(port: number = DEFAULT_PORT): void {
-    this.wss = new WebSocketServer({ port });
+  constructor(options?: ServerOptions) {
+    this.token = options?.token;
+    this.maxHistory = options?.maxHistory ?? 200;
+  }
 
-    log("info", `Relay server listening on ws://0.0.0.0:${port}`);
+  start(port: number = DEFAULT_PORT, options?: ServerOptions): void {
+    const opts = options ?? {};
+    if (opts.token) this.token = opts.token;
+
+    const wssOptions: Record<string, unknown> = { maxPayload: MAX_MESSAGE_SIZE };
+
+    if (opts.tlsKey && opts.tlsCert) {
+      const httpsServer = createHttpsServer({
+        key: opts.tlsKey,
+        cert: opts.tlsCert,
+      });
+      wssOptions.server = httpsServer;
+      httpsServer.listen(port);
+      log("info", `Relay server listening on wss://0.0.0.0:${port} (TLS)`);
+    } else {
+      wssOptions.port = port;
+      log("info", `Relay server listening on ws://0.0.0.0:${port}`);
+    }
+
+    this.wss = new WebSocketServer(wssOptions as ConstructorParameters<typeof WebSocketServer>[0]);
+
+    if (this.token) {
+      log("info", `Room token authentication enabled`);
+    }
 
     this.wss.on("connection", (ws) => {
       let currentPeerId = generatePeerId(); // Temp ID until join
@@ -54,9 +100,10 @@ export class SyncServer {
 
   private handleMessage(ws: WebSocket, msg: SyncMessage, currentPeerId: string): string | undefined {
     switch (msg.type) {
-      case "join":
-        this.handleJoin(ws, msg, currentPeerId);
-        return msg.peerId; // Return the real peerId so close handler uses it
+      case "join": {
+        const accepted = this.handleJoin(ws, msg, currentPeerId);
+        return accepted ? msg.peerId : undefined;
+      }
 
       case "heartbeat":
         this.handleHeartbeat(msg.peerId);
@@ -67,19 +114,16 @@ export class SyncServer {
         return undefined;
 
       default:
+        // Store in history for replay (skip heartbeats and peer-lists)
+        this.addToHistory(msg.roomId, msg);
         this.broadcast(msg.roomId, msg, msg.peerId);
         return undefined;
     }
   }
 
-  private handleJoin(ws: WebSocket, msg: SyncMessage, tempId: string): void {
+  private handleJoin(ws: WebSocket, msg: SyncMessage, tempId: string): boolean {
     const peerId = msg.peerId;
     const roomId = msg.roomId;
-
-    // Update tempId mapping
-    if (this.peers.has(tempId)) {
-      this.peers.delete(tempId);
-    }
 
     const joinPayload = msg.payload as {
       hostname?: string;
@@ -87,7 +131,28 @@ export class SyncServer {
       ip?: string;
       platform?: string;
       arch?: string;
+      token?: string;
     };
+
+    // Token validation
+    if (this.token && joinPayload.token !== this.token) {
+      log("warn", `Peer ${peerId} rejected: invalid token`);
+      const rejectMsg: SyncMessage = {
+        type: "leave",
+        roomId,
+        peerId: "server",
+        timestamp: timestamp(),
+        payload: { reason: "invalid_token" },
+      };
+      ws.send(JSON.stringify(rejectMsg));
+      ws.close(4001, "Invalid token");
+      return false;
+    }
+
+    // Update tempId mapping
+    if (this.peers.has(tempId)) {
+      this.peers.delete(tempId);
+    }
 
     const peerInfo: PeerInfo = {
       id: peerId,
@@ -112,6 +177,9 @@ export class SyncServer {
     // Broadcast updated peer list to room
     this.broadcastPeerList(roomId);
 
+    // Send history to the new peer (session replay)
+    this.sendHistory(ws, roomId);
+
     // Ask existing peers to send their current state to the new peer
     this.broadcast(roomId, {
       type: "request-sync",
@@ -120,6 +188,8 @@ export class SyncServer {
       timestamp: timestamp(),
       payload: { requestedBy: peerId },
     }, peerId);
+
+    return true;
   }
 
   private handleHeartbeat(peerId: string): void {
@@ -134,6 +204,47 @@ export class SyncServer {
     this.broadcast(msg.roomId, msg, msg.peerId);
   }
 
+  // ── Session Replay ──────────────────────────────────────────────
+  private addToHistory(roomId: string, msg: SyncMessage): void {
+    if (!roomId) return;
+    // Only store replayable message types
+    const replayable = ["chat-message", "file-change", "file-delta", "claude-md-update",
+      "memory-update", "activity", "session-event"];
+    if (!replayable.includes(msg.type)) return;
+
+    if (!this.roomHistory.has(roomId)) {
+      this.roomHistory.set(roomId, []);
+    }
+    const history = this.roomHistory.get(roomId)!;
+    history.push({ msg, storedAt: timestamp() });
+
+    // Trim old entries
+    while (history.length > this.maxHistory) {
+      history.shift();
+    }
+  }
+
+  private sendHistory(ws: WebSocket, roomId: string): void {
+    const history = this.roomHistory.get(roomId);
+    if (!history || history.length === 0) return;
+
+    const historyMsg: SyncMessage = {
+      type: "history",
+      roomId,
+      peerId: "server",
+      timestamp: timestamp(),
+      payload: {
+        messages: history.map((h) => h.msg),
+        count: history.length,
+      },
+    };
+
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(historyMsg));
+    }
+  }
+
+  // ── Broadcast ───────────────────────────────────────────────────
   private broadcast(roomId: string, msg: SyncMessage, excludePeerId?: string): void {
     const room = this.rooms.get(roomId);
     if (!room) return;
@@ -187,6 +298,7 @@ export class SyncServer {
       room.delete(peerId);
       if (room.size === 0) {
         this.rooms.delete(roomId);
+        // Keep history even when room empties — late joiners can still replay
         log("info", `Room ${roomId} closed (empty)`);
       } else {
         this.broadcastPeerList(roomId);

@@ -8,15 +8,19 @@ import {
   MemoryUpdatePayload,
   ClaudeMdUpdatePayload,
   FileChangePayload,
+  FileDeltaPayload,
   ChatMessagePayload,
   ActivityPayload,
   PeerInfo,
   PeerListPayload,
   RoomConfig,
   HEARTBEAT_INTERVAL,
+  MAX_FILE_SIZE,
 } from "../shared/types.js";
 import { hashContent, timestamp, log } from "../shared/utils.js";
 import { MachineIdentity } from "../shared/machine-identity.js";
+import { mergeClaudeMd } from "../shared/conflict-resolver.js";
+import { computeDelta, applyDelta, isDeltaSmaller } from "../shared/delta.js";
 
 export interface ActivityEvent {
   peerId: string;
@@ -39,6 +43,9 @@ export class SyncClient {
   private maxReconnectAttempts = 10;
   private disposed = false;
   private knownHashes = new Map<string, string>();
+  private baseContents = new Map<string, string>(); // For three-way merge
+  private lastSentContents = new Map<string, string>(); // For delta computation
+  private offlineQueue: SyncMessage[] = [];
   private peers: PeerInfo[] = [];
   private connected = false;
   private onPeerUpdate?: (peers: PeerInfo[]) => void;
@@ -65,9 +72,10 @@ export class SyncClient {
       this.ws = new WebSocket(url);
 
       this.ws.on("open", () => {
+        const isReconnect = this.reconnectAttempts > 0;
         this.connected = true;
         this.reconnectAttempts = 0;
-        log("info", `Connected! Joining room ${this.config.roomId}`);
+        log("info", `${isReconnect ? "Reconnected" : "Connected"}! Joining room ${this.config.roomId}`);
 
         this.send({
           type: "join",
@@ -80,11 +88,16 @@ export class SyncClient {
             ip: this.machineIdentity.ip,
             platform: this.machineIdentity.platform,
             arch: this.machineIdentity.arch,
+            ...(this.config.token ? { token: this.config.token } : {}),
           },
         });
 
         this.startHeartbeat();
-        this.startWatching();
+        if (!isReconnect) {
+          this.startWatching();
+        } else {
+          this.flushOfflineQueue();
+        }
         resolve();
       });
 
@@ -113,8 +126,52 @@ export class SyncClient {
     });
   }
 
+  private shouldReceive(msg: SyncMessage): boolean {
+    const filter = this.config.syncFilter;
+    if (!filter) return true;
+
+    // Check message type filter
+    if (filter.messageTypes && filter.messageTypes.length > 0) {
+      if (!filter.messageTypes.includes(msg.type)) return false;
+    }
+
+    // Check path filters for file-related messages
+    if (filter.include || filter.exclude) {
+      let relPath: string | null = null;
+      if (msg.type === "file-change" || msg.type === "file-delta") {
+        relPath = (msg.payload as { relativePath?: string })?.relativePath ?? null;
+      } else if (msg.type === "claude-md-update") {
+        relPath = "CLAUDE.md";
+      }
+
+      if (relPath) {
+        if (filter.exclude?.some((pattern) => this.matchGlob(relPath!, pattern))) {
+          return false;
+        }
+        if (filter.include && filter.include.length > 0) {
+          if (!filter.include.some((pattern) => this.matchGlob(relPath!, pattern))) {
+            return false;
+          }
+        }
+      }
+    }
+
+    return true;
+  }
+
+  private matchGlob(path: string, pattern: string): boolean {
+    // Simple glob matching: * matches anything, ** matches path separators too
+    const regex = pattern
+      .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+      .replace(/\*\*/g, "§§")
+      .replace(/\*/g, "[^/]*")
+      .replace(/§§/g, ".*");
+    return new RegExp(`^${regex}$`).test(path);
+  }
+
   private async handleMessage(msg: SyncMessage): Promise<void> {
     if (msg.peerId === this.peerId) return;
+    if (!this.shouldReceive(msg)) return;
 
     const peerLabel = this.getPeerLabel(msg.peerId);
     const peerIp = this.getPeerIp(msg.peerId);
@@ -156,8 +213,27 @@ export class SyncClient {
         const payload = msg.payload as ClaudeMdUpdatePayload;
         const targetPath = join(this.config.projectPath, "CLAUDE.md");
         if (!this.isPathSafe(targetPath)) break;
-        await this.applyFileUpdate(targetPath, payload.content, payload.hash);
-        this.emitActivity(msg.peerId, peerLabel, peerIp, "file-sync", `synced CLAUDE.md`);
+
+        // Use merge strategy instead of blind overwrite
+        let localContent = "";
+        if (existsSync(targetPath)) {
+          localContent = await readFile(targetPath, "utf-8");
+        }
+        const base = this.baseContents.get(targetPath) ?? null;
+        const result = mergeClaudeMd(base, localContent, payload.content);
+
+        if (result.hadConflict) {
+          this.emitActivity(msg.peerId, peerLabel, peerIp, "file-sync",
+            `CLAUDE.md merged with conflicts in: ${result.conflictSections.join(", ")}`);
+        } else {
+          this.emitActivity(msg.peerId, peerLabel, peerIp, "file-sync", `synced CLAUDE.md`);
+        }
+
+        const mergedHash = hashContent(result.content);
+        this.knownHashes.set(targetPath, mergedHash);
+        this.baseContents.set(targetPath, result.content);
+        await mkdir(dirname(targetPath), { recursive: true });
+        await writeFile(targetPath, result.content, "utf-8");
         break;
       }
 
@@ -165,6 +241,33 @@ export class SyncClient {
         const payload = msg.payload as FileChangePayload;
         await this.applyFileChange(payload);
         this.emitActivity(msg.peerId, peerLabel, peerIp, "file-sync", `${payload.action}d ${payload.relativePath}`);
+        break;
+      }
+
+      case "file-delta": {
+        const deltaPayload = msg.payload as FileDeltaPayload;
+        const deltaFullPath = join(this.config.projectPath, deltaPayload.relativePath);
+        if (!this.isPathSafe(deltaFullPath)) {
+          log("warn", `Blocked delta path traversal: ${deltaPayload.relativePath}`);
+          break;
+        }
+        // Apply delta if we have the base version
+        const currentHash = this.knownHashes.get(deltaFullPath);
+        if (currentHash === deltaPayload.baseHash && existsSync(deltaFullPath)) {
+          const oldContent = await readFile(deltaFullPath, "utf-8");
+          const newContent = applyDelta(oldContent, deltaPayload.ops);
+          const newHash = hashContent(newContent);
+          if (newHash === deltaPayload.resultHash) {
+            this.knownHashes.set(deltaFullPath, newHash);
+            this.lastSentContents.set(deltaFullPath, newContent);
+            await writeFile(deltaFullPath, newContent, "utf-8");
+            this.emitActivity(msg.peerId, peerLabel, peerIp, "file-sync", `delta synced ${deltaPayload.relativePath}`);
+          } else {
+            log("warn", `Delta hash mismatch for ${deltaPayload.relativePath}, requesting full sync`);
+          }
+        } else {
+          log("debug", `Cannot apply delta for ${deltaPayload.relativePath}: base hash mismatch`);
+        }
         break;
       }
 
@@ -192,6 +295,37 @@ export class SyncClient {
       case "activity": {
         const actPayload = msg.payload as ActivityPayload;
         this.emitActivity(msg.peerId, actPayload.machineLabel, actPayload.machineIp, "activity", `${actPayload.action}: ${actPayload.detail}`);
+        break;
+      }
+
+      case "history": {
+        const histPayload = msg.payload as { messages: SyncMessage[]; count: number };
+        log("info", `Received ${histPayload.count} history message(s)`);
+        for (const histMsg of histPayload.messages) {
+          // Replay chat messages as activity events (don't re-apply file changes from history)
+          if (histMsg.type === "chat-message") {
+            const cp = histMsg.payload as ChatMessagePayload;
+            this.emitActivity(histMsg.peerId, cp.machineLabel, cp.machineIp, "chat", cp.text);
+          } else if (histMsg.type === "activity") {
+            const ap = histMsg.payload as ActivityPayload;
+            this.emitActivity(histMsg.peerId, ap.machineLabel, ap.machineIp, "activity", `${ap.action}: ${ap.detail}`);
+          } else if (histMsg.type === "session-event") {
+            const ep = histMsg.payload as { event: string; data?: { input?: string } };
+            const detail = ep.data?.input ?? ep.event;
+            this.emitActivity(histMsg.peerId, this.getPeerLabel(histMsg.peerId), this.getPeerIp(histMsg.peerId), "session-event", detail);
+          }
+        }
+        break;
+      }
+
+      case "leave": {
+        // Server rejection or peer departure
+        const leavePayload = msg.payload as { reason?: string };
+        if (leavePayload?.reason === "invalid_token") {
+          log("error", "Connection rejected: invalid room token");
+          this.emitActivity("server", "server", "", "leave", "Connection rejected: invalid token");
+          this.disconnect();
+        }
         break;
       }
     }
@@ -297,6 +431,14 @@ export class SyncClient {
   private async onLocalFileChange(filePath: string, action: "create" | "update"): Promise<void> {
     try {
       const content = await readFile(filePath, "utf-8");
+
+      if (Buffer.byteLength(content) > MAX_FILE_SIZE) {
+        log("warn", `Skipping ${filePath}: exceeds ${MAX_FILE_SIZE / 1024}KB size limit`);
+        this.emitActivity(this.peerId, this.machineIdentity.label, this.machineIdentity.ip,
+          "activity", `Skipped syncing ${relative(this.config.projectPath, filePath)} (too large)`);
+        return;
+      }
+
       const hash = hashContent(content);
 
       if (this.knownHashes.get(filePath) === hash) return;
@@ -305,6 +447,7 @@ export class SyncClient {
       const relPath = relative(this.config.projectPath, filePath);
 
       if (relPath === "CLAUDE.md") {
+        this.baseContents.set(filePath, content); // Track for future merges
         this.send({
           type: "claude-md-update",
           roomId: this.config.roomId,
@@ -325,6 +468,30 @@ export class SyncClient {
           payload: { filePath, content, hash } satisfies MemoryUpdatePayload,
         });
       } else {
+        const lastContent = this.lastSentContents.get(filePath);
+        const lastHash = this.knownHashes.get(filePath);
+
+        // Try delta if we have a previous version
+        if (lastContent && lastHash && action === "update") {
+          const ops = computeDelta(lastContent, content);
+          if (isDeltaSmaller(ops, content)) {
+            this.send({
+              type: "file-delta",
+              roomId: this.config.roomId,
+              peerId: this.peerId,
+              timestamp: timestamp(),
+              payload: {
+                relativePath: relPath,
+                baseHash: lastHash,
+                resultHash: hash,
+                ops,
+              } satisfies FileDeltaPayload,
+            });
+            this.lastSentContents.set(filePath, content);
+            return;
+          }
+        }
+
         this.send({
           type: "file-change",
           roomId: this.config.roomId,
@@ -332,6 +499,7 @@ export class SyncClient {
           timestamp: timestamp(),
           payload: { relativePath: relPath, content, action } satisfies FileChangePayload,
         });
+        this.lastSentContents.set(filePath, content);
       }
     } catch {
       // File may have been deleted between detection and read
@@ -425,6 +593,22 @@ export class SyncClient {
   private send(msg: SyncMessage): void {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(msg));
+    } else if (!this.disposed && msg.type !== "heartbeat") {
+      // Queue non-heartbeat messages while disconnected
+      this.offlineQueue.push(msg);
+      if (this.offlineQueue.length > 100) {
+        this.offlineQueue.shift(); // Drop oldest to prevent unbounded growth
+      }
+    }
+  }
+
+  private flushOfflineQueue(): void {
+    if (this.offlineQueue.length === 0) return;
+    log("info", `Flushing ${this.offlineQueue.length} queued message(s)`);
+    const queue = [...this.offlineQueue];
+    this.offlineQueue = [];
+    for (const msg of queue) {
+      this.send(msg);
     }
   }
 

@@ -19,6 +19,10 @@ export function timestamp(): number {
   return Date.now();
 }
 
+export function generateToken(): string {
+  return randomBytes(16).toString("base64url");
+}
+
 export function log(level: "info" | "warn" | "error" | "debug", msg: string, data?: unknown): void {
   const ts = new Date().toISOString().slice(11, 23);
   const prefix = { info: "ℹ", warn: "⚠", error: "✗", debug: "·" }[level];

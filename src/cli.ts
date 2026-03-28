@@ -7,19 +7,21 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createHash } from "node:crypto";
-import { SyncServer } from "./server/index.js";
+import { SyncServer, type ServerOptions } from "./server/index.js";
 import { SyncClient, type ActivityEvent } from "./client/sync-client.js";
+import { Dashboard } from "./client/dashboard.js";
 import { getMachineIdentity, getLocalIp, formatMachineId, generateMachineContext, MachineIdentity } from "./shared/machine-identity.js";
 import { MachineColorMap } from "./shared/colors.js";
-import { generateRoomId, log } from "./shared/utils.js";
-import { DEFAULT_PORT, RoomConfig, PeerInfo } from "./shared/types.js";
+import { generateRoomId, generateToken, log } from "./shared/utils.js";
+import { DEFAULT_PORT, RoomConfig, PeerInfo, SyncFilter } from "./shared/types.js";
+import { DiscoveryBroadcaster, DiscoveryListener } from "./shared/discovery.js";
 
 const program = new Command();
 
 program
   .name("claude-swarm")
   .description("Sync Claude Code sessions across multiple machines")
-  .version("0.1.0");
+  .version("0.2.0");
 
 // ═══════════════════════════════════════════════════════════════════
 //  Shared helpers
@@ -30,6 +32,8 @@ function buildConfig(
   serverUrl: string,
   projectPath: string,
   identity: MachineIdentity,
+  token?: string,
+  syncFilter?: SyncFilter,
 ): RoomConfig & { machine: MachineIdentity } {
   return {
     roomId,
@@ -40,6 +44,8 @@ function buildConfig(
       ".claude/settings.json",
       ".claude/settings.local.json",
     ],
+    token,
+    syncFilter,
     machine: identity,
   };
 }
@@ -180,49 +186,73 @@ program
   .option("-p, --port <port>", "Port to listen on", String(DEFAULT_PORT))
   .option("-l, --label <name>", "Label for this machine")
   .option("--project <path>", "Project path", process.cwd())
+  .option("--token", "Enable token authentication (generates a shared secret)")
+  .option("--no-discovery", "Disable LAN auto-discovery broadcast")
   .action(async (opts) => {
     const port = parseInt(opts.port, 10);
     const projectPath = resolve(opts.project);
     const identity = await getMachineIdentity(opts.label);
     const localIp = getLocalIp();
-    // Use deterministic room ID based on this machine's IP + port
-    // so that "join <ip>" automatically lands in the same room
     const roomId = generateRoomFromAddress(localIp, port);
     const serverUrl = `ws://localhost:${port}`;
 
+    // Generate token if requested
+    const token = opts.token ? generateToken() : undefined;
+
     // 1. Start relay server
-    const server = new SyncServer();
+    const serverOpts: ServerOptions = {};
+    if (token) serverOpts.token = token;
+    const server = new SyncServer(serverOpts);
     server.start(port);
 
-    // 2. Write config
-    const config = buildConfig(roomId, serverUrl, projectPath, identity);
+    // 2. Start LAN discovery broadcast
+    let broadcaster: DiscoveryBroadcaster | null = null;
+    if (opts.discovery !== false) {
+      broadcaster = new DiscoveryBroadcaster(port, roomId, identity.label, token);
+      broadcaster.start();
+    }
+
+    // 3. Write config
+    const config = buildConfig(roomId, serverUrl, projectPath, identity, token);
     await saveConfig(projectPath, config);
 
-    // 3. Print join instructions
+    // 4. Print join instructions
     console.log(chalk.green.bold("\n  claude-swarm host\n"));
     console.log(`  Swarm started! Relay running on port ${chalk.cyan(String(port))}`);
     console.log(`  Machine:  ${chalk.yellow(formatMachineId(identity))}`);
     console.log(`  Room:     ${chalk.cyan(roomId)}`);
+    if (token) {
+      console.log(`  Token:    ${chalk.magenta(token)}`);
+    }
     console.log();
     console.log(chalk.bold("  Others can join with:"));
     console.log();
-    console.log(`    ${chalk.cyan.bold(`claude-swarm join ${localIp}`)}`);
+    if (token) {
+      console.log(`    ${chalk.cyan.bold(`claude-swarm join ${localIp} --token ${token}`)}`);
+    } else {
+      console.log(`    ${chalk.cyan.bold(`claude-swarm join ${localIp}`)}`);
+    }
+    console.log();
+    console.log(chalk.dim("  Or auto-discover on LAN:"));
+    console.log(`    ${chalk.cyan.bold("claude-swarm join")}`);
     console.log();
     if (localIp === "127.0.0.1") {
       console.log(chalk.yellow("  Warning: No external network interface detected."));
       console.log(chalk.yellow("  Other machines may need your actual IP or hostname.\n"));
     }
 
-    // 4. Start syncing with activity feed
+    // 5. Start syncing with activity feed
     try {
       await startSyncUI(config, identity, projectPath);
     } catch (err) {
       console.error(chalk.red(`  Failed to connect to own server: ${err}`));
+      if (broadcaster) broadcaster.stop();
       server.stop();
       process.exit(1);
     }
 
     process.on("SIGINT", () => {
+      if (broadcaster) broadcaster.stop();
       server.stop();
       process.exit(0);
     });
@@ -231,47 +261,89 @@ program
 // ── join ───────────────────────────────────────────────────────────
 program
   .command("join")
-  .description("Join an existing swarm by IP address or hostname")
-  .argument("<address>", "IP address or hostname of the host machine")
+  .description("Join an existing swarm by IP address, hostname, or auto-discovery")
+  .argument("[address]", "IP address or hostname of the host (omit for auto-discovery)")
   .option("-p, --port <port>", "Port the host is running on", String(DEFAULT_PORT))
   .option("-l, --label <name>", "Label for this machine")
   .option("--project <path>", "Project path", process.cwd())
+  .option("--token <token>", "Room token for authentication")
+  .option("--include <patterns>", "Comma-separated glob patterns of files to receive")
+  .option("--exclude <patterns>", "Comma-separated glob patterns of files to exclude")
   .action(async (address, opts) => {
     const port = parseInt(opts.port, 10);
     const projectPath = resolve(opts.project);
     const identity = await getMachineIdentity(opts.label);
-    const serverUrl = `ws://${address}:${port}`;
 
-    // 1. Connect briefly to discover the room ID
+    let resolvedAddress = address;
+    let token = opts.token;
+
+    // Auto-discovery if no address provided
+    if (!resolvedAddress) {
+      console.log(chalk.green.bold("\n  claude-swarm join\n"));
+      console.log(chalk.dim("  Searching for swarms on the local network..."));
+
+      const listener = new DiscoveryListener();
+      try {
+        await listener.start();
+        const host = await listener.waitForHost(10000);
+        listener.stop();
+
+        if (!host) {
+          console.error(chalk.red("  No swarm found on the local network."));
+          console.error(chalk.dim("  Try specifying an address: claude-swarm join <ip>"));
+          process.exit(1);
+        }
+
+        resolvedAddress = host.address;
+        if (host.token && !token) token = host.token;
+        console.log(`  Found swarm: ${chalk.cyan(host.label)} at ${chalk.cyan(`${host.address}:${host.port}`)}`);
+      } catch (err) {
+        listener.stop();
+        console.error(chalk.red(`  Auto-discovery failed: ${err}`));
+        console.error(chalk.dim("  Try specifying an address: claude-swarm join <ip>"));
+        process.exit(1);
+      }
+    }
+
+    const serverUrl = `ws://${resolvedAddress}:${port}`;
+
     console.log(chalk.green.bold("\n  claude-swarm join\n"));
     console.log(`  Connecting to ${chalk.cyan(serverUrl)}...`);
 
-    // Generate a room ID or discover one — for now we use a deterministic
-    // room based on the server address so all joiners end up in the same room
-    const roomId = generateRoomFromAddress(address, port);
+    const roomId = generateRoomFromAddress(resolvedAddress, port);
 
-    // 2. Write config
-    const config = buildConfig(roomId, serverUrl, projectPath, identity);
+    // Build sync filter from CLI options
+    let syncFilter: SyncFilter | undefined;
+    if (opts.include || opts.exclude) {
+      syncFilter = {};
+      if (opts.include) syncFilter.include = opts.include.split(",").map((s: string) => s.trim());
+      if (opts.exclude) syncFilter.exclude = opts.exclude.split(",").map((s: string) => s.trim());
+    }
+
+    // Write config
+    const config = buildConfig(roomId, serverUrl, projectPath, identity, token, syncFilter);
     await saveConfig(projectPath, config);
 
     console.log(`  Machine:  ${chalk.yellow(formatMachineId(identity))}`);
     console.log(`  Room:     ${chalk.cyan(roomId)}`);
+    if (syncFilter) {
+      if (syncFilter.include) console.log(`  Include:  ${chalk.dim(syncFilter.include.join(", "))}`);
+      if (syncFilter.exclude) console.log(`  Exclude:  ${chalk.dim(syncFilter.exclude.join(", "))}`);
+    }
     console.log();
 
-    // 3. Start syncing with activity feed
+    // Start syncing with activity feed
     try {
       await startSyncUI(config, identity, projectPath);
     } catch (err) {
       console.error(chalk.red(`  Failed to connect: ${err}`));
-      console.error(chalk.dim(`  Is the host running? Check: claude-swarm host on ${address}`));
+      console.error(chalk.dim(`  Is the host running? Check: claude-swarm host on ${resolvedAddress}`));
       process.exit(1);
     }
   });
 
 /**
  * Generate a deterministic room ID from the server address.
- * This way all machines joining the same host automatically end up
- * in the same room without needing to exchange room IDs.
  */
 function generateRoomFromAddress(address: string, port: number): string {
   return createHash("sha256")
@@ -280,18 +352,49 @@ function generateRoomFromAddress(address: string, port: number): string {
     .slice(0, 12);
 }
 
+// ── dashboard ─────────────────────────────────────────────────────
+program
+  .command("dashboard")
+  .description("Live status dashboard with peer list, activity feed, and stats")
+  .option("--project <path>", "Project path", process.cwd())
+  .action(async (opts) => {
+    const projectPath = resolve(opts.project);
+    const configPath = join(projectPath, ".claude-swarm.json");
+
+    if (!existsSync(configPath)) {
+      console.error(chalk.red("No .claude-swarm.json found."));
+      console.error(chalk.dim("Use 'claude-swarm host' to start a swarm first."));
+      process.exit(1);
+    }
+
+    const config = JSON.parse(await readFile(configPath, "utf-8")) as RoomConfig & { machine: MachineIdentity };
+    const identity = await getMachineIdentity();
+
+    const dashboard = new Dashboard(config, identity);
+    await dashboard.start();
+
+    process.on("SIGINT", () => {
+      dashboard.stop();
+      process.exit(0);
+    });
+  });
+
 // ── serve ──────────────────────────────────────────────────────────
 program
   .command("serve")
   .description("Start the relay server only (advanced)")
   .option("-p, --port <port>", "Port to listen on", String(DEFAULT_PORT))
+  .option("--token <token>", "Require this token for room access")
   .action(async (opts) => {
     const port = parseInt(opts.port, 10);
-    const server = new SyncServer();
+    const serverOpts: ServerOptions = {};
+    if (opts.token) serverOpts.token = opts.token;
+    const server = new SyncServer(serverOpts);
     server.start(port);
 
     console.log(chalk.green.bold("\n  claude-swarm relay server\n"));
     console.log(`  Listening on: ${chalk.cyan(`ws://0.0.0.0:${port}`)}`);
+    if (opts.token) console.log(`  Token auth:   ${chalk.magenta("enabled")}`);
     console.log(`  Share this address with other machines to connect.\n`);
 
     process.on("SIGINT", () => { server.stop(); process.exit(0); });
@@ -305,11 +408,12 @@ program
   .option("-r, --room <id>", "Room ID (generates one if not provided)")
   .option("-l, --label <name>", "Label for this machine")
   .option("--project <path>", "Project path", process.cwd())
+  .option("--token <token>", "Room token for authentication")
   .action(async (opts) => {
     const projectPath = resolve(opts.project);
     const roomId = opts.room ?? generateRoomId();
     const identity = await getMachineIdentity(opts.label);
-    const config = buildConfig(roomId, opts.server, projectPath, identity);
+    const config = buildConfig(roomId, opts.server, projectPath, identity, opts.token);
     const configPath = await saveConfig(projectPath, config);
 
     console.log(chalk.green.bold("\n  claude-swarm initialized!\n"));
@@ -382,6 +486,11 @@ program
     console.log(`  Color:    ${statusColorMap.getColor(identity.peerId)(statusColorMap.getColorName(identity.peerId))}`);
     console.log(`  Room:     ${chalk.cyan(config.roomId)}`);
     console.log(`  Server:   ${chalk.cyan(config.serverUrl)}`);
+    if (config.token) console.log(`  Token:    ${chalk.magenta("(set)")}`);
+    if (config.syncFilter) {
+      if (config.syncFilter.include) console.log(`  Include:  ${chalk.dim(config.syncFilter.include.join(", "))}`);
+      if (config.syncFilter.exclude) console.log(`  Exclude:  ${chalk.dim(config.syncFilter.exclude.join(", "))}`);
+    }
     console.log();
   });
 

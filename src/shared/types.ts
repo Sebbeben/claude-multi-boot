@@ -13,11 +13,13 @@ export type MessageType =
   | "claude-md-update"
   | "session-event"
   | "file-change"
+  | "file-delta"
   | "peer-list"
   | "heartbeat"
   | "request-sync"
   | "chat-message"
-  | "activity";
+  | "activity"
+  | "history";
 
 export interface MemoryUpdatePayload {
   filePath: string;
@@ -67,6 +69,13 @@ export interface ActivityPayload {
   machineIp: string;
 }
 
+export interface FileDeltaPayload {
+  relativePath: string;
+  baseHash: string;
+  resultHash: string;
+  ops: Array<{ op: "keep" | "add" | "remove"; value: string | number }>;
+}
+
 export interface PeerListPayload {
   peers: PeerInfo[];
 }
@@ -76,8 +85,21 @@ export interface RoomConfig {
   serverUrl: string;
   projectPath: string;
   syncPaths: string[];
+  token?: string;
+  syncFilter?: SyncFilter;
+}
+
+export interface SyncFilter {
+  /** Glob patterns of paths to receive. Empty = receive all. */
+  include?: string[];
+  /** Glob patterns of paths to exclude from receiving. */
+  exclude?: string[];
+  /** Message types to receive. Empty = receive all. */
+  messageTypes?: MessageType[];
 }
 
 export const DEFAULT_PORT = 24680;
 export const HEARTBEAT_INTERVAL = 15000;
 export const PEER_TIMEOUT = 45000;
+export const MAX_FILE_SIZE = 1024 * 1024; // 1 MB
+export const MAX_MESSAGE_SIZE = 2 * 1024 * 1024; // 2 MB (file + overhead)
