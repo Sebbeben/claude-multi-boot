@@ -11,7 +11,7 @@ describe("Discovery", () => {
   });
 
   it("broadcaster and listener discover each other on localhost", async () => {
-    broadcaster = new DiscoveryBroadcaster(24680, "test-room-id", "my-laptop", "tok123");
+    broadcaster = new DiscoveryBroadcaster(24680, "test-room-id", "my-laptop", true);
     listener = new DiscoveryListener();
 
     await listener.start();
@@ -23,7 +23,7 @@ describe("Discovery", () => {
     expect(host!.port).toBe(24680);
     expect(host!.roomId).toBe("test-room-id");
     expect(host!.label).toBe("my-laptop");
-    expect(host!.token).toBe("tok123");
+    expect(host!.tokenRequired).toBe(true);
   });
 
   it("listener returns null on timeout when no broadcaster", async () => {
@@ -35,7 +35,7 @@ describe("Discovery", () => {
   });
 
   it("getDiscoveredHosts returns all found hosts", async () => {
-    broadcaster = new DiscoveryBroadcaster(24680, "room-1", "host-a");
+    broadcaster = new DiscoveryBroadcaster(24680, "room-1", "host-a", false);
     listener = new DiscoveryListener();
 
     await listener.start();

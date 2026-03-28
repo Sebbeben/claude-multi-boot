@@ -208,7 +208,7 @@ program
     // 2. Start LAN discovery broadcast
     let broadcaster: DiscoveryBroadcaster | null = null;
     if (opts.discovery !== false) {
-      broadcaster = new DiscoveryBroadcaster(port, roomId, identity.label, token);
+      broadcaster = new DiscoveryBroadcaster(port, roomId, identity.label, !!token);
       broadcaster.start();
     }
 
@@ -295,7 +295,10 @@ program
         }
 
         resolvedAddress = host.address;
-        if (host.token && !token) token = host.token;
+        if (host.tokenRequired && !token) {
+          console.error(chalk.red("  This swarm requires a token. Use: claude-swarm join --token <token>"));
+          process.exit(1);
+        }
         console.log(`  Found swarm: ${chalk.cyan(host.label)} at ${chalk.cyan(`${host.address}:${host.port}`)}`);
       } catch (err) {
         listener.stop();

@@ -442,6 +442,7 @@ export class SyncClient {
       const hash = hashContent(content);
 
       if (this.knownHashes.get(filePath) === hash) return;
+      const previousHash = this.knownHashes.get(filePath);
       this.knownHashes.set(filePath, hash);
 
       const relPath = relative(this.config.projectPath, filePath);
@@ -469,10 +470,9 @@ export class SyncClient {
         });
       } else {
         const lastContent = this.lastSentContents.get(filePath);
-        const lastHash = this.knownHashes.get(filePath);
 
         // Try delta if we have a previous version
-        if (lastContent && lastHash && action === "update") {
+        if (lastContent && previousHash && action === "update") {
           const ops = computeDelta(lastContent, content);
           if (isDeltaSmaller(ops, content)) {
             this.send({
@@ -482,7 +482,7 @@ export class SyncClient {
               timestamp: timestamp(),
               payload: {
                 relativePath: relPath,
-                baseHash: lastHash,
+                baseHash: previousHash,
                 resultHash: hash,
                 ops,
               } satisfies FileDeltaPayload,
@@ -593,8 +593,8 @@ export class SyncClient {
   private send(msg: SyncMessage): void {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(msg));
-    } else if (!this.disposed && msg.type !== "heartbeat") {
-      // Queue non-heartbeat messages while disconnected
+    } else if (!this.disposed && msg.type !== "heartbeat" && msg.type !== "join") {
+      // Queue messages while disconnected (skip heartbeats and joins)
       this.offlineQueue.push(msg);
       if (this.offlineQueue.length > 100) {
         this.offlineQueue.shift(); // Drop oldest to prevent unbounded growth
@@ -613,6 +613,7 @@ export class SyncClient {
   }
 
   private startHeartbeat(): void {
+    if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
     this.heartbeatTimer = setInterval(() => {
       this.send({
         type: "heartbeat",

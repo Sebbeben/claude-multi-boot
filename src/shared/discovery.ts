@@ -19,7 +19,7 @@ export interface DiscoveredHost {
   port: number;
   roomId: string;
   label: string;
-  token?: string;
+  tokenRequired: boolean;
   discoveredAt: number;
 }
 
@@ -32,15 +32,16 @@ export class DiscoveryBroadcaster {
     private relayPort: number,
     private roomId: string,
     private label: string,
-    private token?: string,
+    private tokenRequired?: boolean,
   ) {
+    // Never broadcast the actual token — only whether one is required
     this.payload = JSON.stringify({
       magic: DISCOVERY_MAGIC,
       address: getLocalIp(),
       port: relayPort,
       roomId,
       label,
-      token: token ?? undefined,
+      tokenRequired: tokenRequired ?? false,
     });
   }
 
@@ -88,7 +89,7 @@ export class DiscoveryListener {
             port: data.port,
             roomId: data.roomId,
             label: data.label,
-            token: data.token,
+            tokenRequired: data.tokenRequired ?? false,
             discoveredAt: Date.now(),
           });
         } catch {

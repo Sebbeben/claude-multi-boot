@@ -21,7 +21,6 @@ export class Dashboard {
   private identity: MachineIdentity;
   private config: RoomConfig;
   private refreshTimer: ReturnType<typeof setInterval> | null = null;
-  private connected = false;
   private lastRender = 0;
   private messageCount = 0;
   private filesSynced = 0;
@@ -53,7 +52,6 @@ export class Dashboard {
 
   async start(): Promise<void> {
     await this.client.connect();
-    this.connected = true;
     this.render();
 
     // Periodic refresh for uptime / connection status
@@ -65,7 +63,6 @@ export class Dashboard {
   stop(): void {
     if (this.refreshTimer) clearInterval(this.refreshTimer);
     this.client.disconnect();
-    this.connected = false;
   }
 
   private render(): void {
@@ -86,8 +83,9 @@ export class Dashboard {
     lines.push("");
 
     // Connection info
-    const statusIcon = this.connected ? chalk.green("●") : chalk.red("●");
-    lines.push(`  ${statusIcon} ${chalk.bold("Status:")}  ${this.connected ? chalk.green("Connected") : chalk.red("Disconnected")}`);
+    const isConn = this.client.isConnected();
+    const statusIcon = isConn ? chalk.green("●") : chalk.red("●");
+    lines.push(`  ${statusIcon} ${chalk.bold("Status:")}  ${isConn ? chalk.green("Connected") : chalk.red("Disconnected")}`);
     lines.push(`  ${chalk.bold("Room:")}    ${chalk.cyan(this.config.roomId)}`);
     lines.push(`  ${chalk.bold("Server:")}  ${chalk.dim(this.config.serverUrl)}`);
     lines.push(`  ${chalk.bold("Machine:")} ${chalk.yellow(formatMachineId(this.identity))}`);

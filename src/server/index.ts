@@ -208,8 +208,8 @@ export class SyncServer {
   private addToHistory(roomId: string, msg: SyncMessage): void {
     if (!roomId) return;
     // Only store replayable message types
-    const replayable = ["chat-message", "file-change", "file-delta", "claude-md-update",
-      "memory-update", "activity", "session-event"];
+    // Only replay lightweight messages — file state is synced via request-sync
+    const replayable = ["chat-message", "activity", "session-event"];
     if (!replayable.includes(msg.type)) return;
 
     if (!this.roomHistory.has(roomId)) {
@@ -315,6 +315,18 @@ export class SyncServer {
         log("warn", `Peer ${peerId} timed out`);
         peer.ws.terminate();
         this.removePeer(peerId);
+      }
+    }
+
+    // Clean up stale history for rooms that have been empty for over 1 hour
+    const HISTORY_TTL = 60 * 60 * 1000;
+    for (const [roomId, history] of this.roomHistory) {
+      if (!this.rooms.has(roomId) && history.length > 0) {
+        const lastEntry = history[history.length - 1];
+        if (now - lastEntry.storedAt > HISTORY_TTL) {
+          this.roomHistory.delete(roomId);
+          log("info", `Cleaned up stale history for room ${roomId}`);
+        }
       }
     }
   }
