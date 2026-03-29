@@ -109,7 +109,7 @@ node dist/cli.js join 192.168.1.10            # Machine B
 
 ```bash
 claude-swarm --version
-# 0.1.0
+# 0.2.0
 
 claude-swarm --help
 ```
@@ -147,6 +147,15 @@ Done. You're synced. Repeat on as many machines as you want.
 
 You'll see the colored activity feed showing all connected machines. Type messages to chat between machines.
 
+### Stopping the swarm
+
+```bash
+# Stop from any context (terminal, Claude Code, SSH)
+claude-swarm stop
+```
+
+This finds the running swarm process via its PID file and gracefully shuts it down. Works for both hosts and joined clients.
+
 ### Options
 
 ```bash
@@ -157,6 +166,10 @@ claude-swarm join 192.168.1.10 --port 3000
 # Custom machine label
 claude-swarm host --label "work-laptop"
 claude-swarm join 192.168.1.10 --label "home-desktop"
+
+# Token authentication
+claude-swarm host --token
+claude-swarm join 192.168.1.10 --token <token>
 ```
 
 ### (Optional) Install Claude Code hooks
@@ -168,6 +181,19 @@ claude-swarm install-hooks
 ```
 
 This writes hook config to `.claude/settings.local.json` in your project.
+
+## Claude Code Slash Commands
+
+When working in a project with claude-swarm installed, these slash commands are available in the Claude Code chat:
+
+| Command | Description |
+|---------|-------------|
+| `/swarm-host` | Start hosting a swarm |
+| `/swarm-join [address]` | Join an existing swarm |
+| `/swarm-stop` | Stop the running swarm |
+| `/swarm-leave` | Leave a swarm (alias for stop) |
+| `/swarm-status` | Show sync status |
+| `/swarm-dashboard` | Open live dashboard |
 
 ## What Gets Synced
 
@@ -184,8 +210,10 @@ This writes hook config to `.claude/settings.local.json` in your project.
 | Command | Description |
 |---------|-------------|
 | `claude-swarm host` | Start a swarm (server + sync in one command) |
-| `claude-swarm join <ip>` | Join a swarm by IP or hostname |
+| `claude-swarm join <ip>` | Join a swarm by IP, hostname, or auto-discovery |
+| `claude-swarm stop` | Stop the running swarm process |
 | `claude-swarm status` | Show current sync config |
+| `claude-swarm dashboard` | Live status dashboard with peers and activity |
 | `claude-swarm install-hooks` | Install Claude Code hooks |
 
 **Advanced** (manual control):
@@ -195,6 +223,21 @@ This writes hook config to `.claude/settings.local.json` in your project.
 | `claude-swarm serve` | Start only the relay server |
 | `claude-swarm init` | Initialize config manually |
 | `claude-swarm sync` | Sync with existing config |
+
+## Multi-Network Support
+
+Machines can join from different networks (e.g., LAN + VPN) connecting to the same host via different IPs. The server automatically redirects joiners to the active room when the client-computed room hash doesn't match due to different IP addresses.
+
+```text
+Home LAN (192.168.1.x)          VPN (172.16.x.x)
+┌──────────┐                    ┌──────────┐
+│ orangepi │─── 192.168.1.11 ──│          │
+└──────────┘                    │  Host PC │
+                                │          │
+┌──────────┐                    │          │
+│  conbat  │─── 172.16.255.11 ─│          │
+└──────────┘                    └──────────┘
+```
 
 ## Configuration
 
@@ -225,9 +268,13 @@ This writes hook config to `.claude/settings.local.json` in your project.
 
 Persistent machine identity. Auto-generated on first run, or set with `--label`.
 
+### `.claude-swarm.pid` (per project)
+
+PID file for the running swarm process. Used by `claude-swarm stop` to find and kill the process. Automatically created on start and removed on exit.
+
 ## Security Notes
 
-- The relay server has **no authentication** by default — run it on a trusted network or behind a VPN
+- The relay server has **no authentication** by default — use `--token` or run on a trusted network / behind a VPN
 - All communication is **unencrypted WebSocket** — use `wss://` with a reverse proxy (nginx, caddy) for production
 - File contents are transmitted in full — don't sync sensitive files
 
@@ -238,6 +285,7 @@ Persistent machine identity. Auto-generated on first run, or set with `--label`.
 - **Hooks** (`src/hooks/`) — Claude Code hook scripts for SessionStart and PostToolUse
 - **Shared** (`src/shared/`) — Types, utilities, and machine identity management
 - **CLI** (`src/cli.ts`) — Command-line interface tying everything together
+- **Commands** (`.claude/commands/`) — Claude Code slash commands for in-chat usage
 
 ## License
 
