@@ -62,7 +62,7 @@ You can also **type messages directly** in the sync terminal to chat between mac
 
 ## Prerequisites
 
-- **Node.js** >= 18.0.0
+- **Node.js** >= 20.12.0
 - **npm** >= 9.0.0
 - **Claude Code CLI** installed on each machine ([install guide](https://docs.anthropic.com/en/docs/claude-code))
 
