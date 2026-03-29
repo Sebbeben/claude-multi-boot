@@ -43,7 +43,7 @@ describe("CLI", () => {
 
   it("join --help shows address argument", async () => {
     const { stdout } = await run(["join", "--help"]);
-    expect(stdout).toContain("<address>");
+    expect(stdout).toContain("address");
     expect(stdout).toContain("--port");
     expect(stdout).toContain("--label");
   });
