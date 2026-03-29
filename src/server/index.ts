@@ -123,7 +123,7 @@ export class SyncServer {
 
   private handleJoin(ws: WebSocket, msg: SyncMessage, tempId: string): boolean {
     const peerId = msg.peerId;
-    const roomId = msg.roomId;
+    let roomId = msg.roomId;
 
     const joinPayload = msg.payload as {
       hostname?: string;
@@ -132,7 +132,19 @@ export class SyncServer {
       platform?: string;
       arch?: string;
       token?: string;
+      autoJoinRoom?: boolean;
     };
+
+    // If the client opted in to auto-join and its room doesn't exist,
+    // redirect to the only active room (handles multi-IP joins).
+    if (joinPayload.autoJoinRoom && (!this.rooms.has(roomId) || this.rooms.get(roomId)!.size === 0)) {
+      const activeRooms = [...this.rooms.entries()].filter(([, peers]) => peers.size > 0);
+      if (activeRooms.length === 1) {
+        const [existingRoomId] = activeRooms[0];
+        log("info", `Redirecting peer ${peerId} from room ${roomId} to ${existingRoomId}`);
+        roomId = existingRoomId;
+      }
+    }
 
     // Token validation
     if (this.token && joinPayload.token !== this.token) {

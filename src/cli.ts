@@ -329,8 +329,10 @@ program
       if (opts.exclude) syncFilter.exclude = opts.exclude.split(",").map((s: string) => s.trim());
     }
 
-    // Write config
+    // Write config — enable autoJoinRoom so the server can redirect if
+    // the client-computed room hash doesn't match (e.g., different IPs).
     const config = buildConfig(roomId, serverUrl, projectPath, identity, token, syncFilter);
+    config.autoJoinRoom = true;
     await saveConfig(projectPath, config);
 
     console.log(`  Machine:  ${chalk.yellow(formatMachineId(identity))}`);

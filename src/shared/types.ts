@@ -87,6 +87,8 @@ export interface RoomConfig {
   syncPaths: string[];
   token?: string;
   syncFilter?: SyncFilter;
+  /** When true, the server may redirect this client to an existing room if the requested room doesn't exist. */
+  autoJoinRoom?: boolean;
 }
 
 export interface SyncFilter {

@@ -89,6 +89,7 @@ export class SyncClient {
             platform: this.machineIdentity.platform,
             arch: this.machineIdentity.arch,
             ...(this.config.token ? { token: this.config.token } : {}),
+            ...(this.config.autoJoinRoom ? { autoJoinRoom: true } : {}),
           },
         });
 
