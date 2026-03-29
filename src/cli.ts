@@ -9,9 +9,10 @@ if (major < 20 || (major === 20 && minor < 12)) {
 import { Command } from "commander";
 import chalk from "chalk";
 import { createInterface } from "node:readline";
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { readFile, writeFile, mkdir, unlink } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { kill } from "node:process";
 import { createHash } from "node:crypto";
 import { SyncServer, type ServerOptions } from "./server/index.js";
 import { SyncClient, type ActivityEvent } from "./client/sync-client.js";
@@ -63,6 +64,18 @@ async function saveConfig(
   const configPath = join(projectPath, ".claude-swarm.json");
   await writeFile(configPath, JSON.stringify(config, null, 2));
   return configPath;
+}
+
+function pidFilePath(projectPath: string): string {
+  return join(projectPath, ".claude-swarm.pid");
+}
+
+async function writePidFile(projectPath: string): Promise<void> {
+  await writeFile(pidFilePath(projectPath), String(process.pid));
+}
+
+async function removePidFile(projectPath: string): Promise<void> {
+  try { await unlink(pidFilePath(projectPath)); } catch { /* already gone */ }
 }
 
 async function startSyncUI(
@@ -218,9 +231,10 @@ program
       broadcaster.start();
     }
 
-    // 3. Write config
+    // 3. Write config + PID file
     const config = buildConfig(roomId, serverUrl, projectPath, identity, token);
     await saveConfig(projectPath, config);
+    await writePidFile(projectPath);
 
     // 4. Print join instructions
     console.log(chalk.green.bold("\n  claude-swarm host\n"));
@@ -248,18 +262,26 @@ program
     }
 
     // 5. Start syncing with activity feed
+    const cleanup = async () => {
+      if (broadcaster) broadcaster.stop();
+      server.stop();
+      await removePidFile(projectPath);
+    };
+
     try {
       await startSyncUI(config, identity, projectPath);
     } catch (err) {
       console.error(chalk.red(`  Failed to connect to own server: ${err}`));
-      if (broadcaster) broadcaster.stop();
-      server.stop();
+      await cleanup();
       process.exit(1);
     }
 
-    process.on("SIGINT", () => {
-      if (broadcaster) broadcaster.stop();
-      server.stop();
+    process.on("SIGINT", async () => {
+      await cleanup();
+      process.exit(0);
+    });
+    process.on("SIGTERM", async () => {
+      await cleanup();
       process.exit(0);
     });
   });
@@ -334,6 +356,7 @@ program
     const config = buildConfig(roomId, serverUrl, projectPath, identity, token, syncFilter);
     config.autoJoinRoom = true;
     await saveConfig(projectPath, config);
+    await writePidFile(projectPath);
 
     console.log(`  Machine:  ${chalk.yellow(formatMachineId(identity))}`);
     console.log(`  Room:     ${chalk.cyan(roomId)}`);
@@ -349,8 +372,12 @@ program
     } catch (err) {
       console.error(chalk.red(`  Failed to connect: ${err}`));
       console.error(chalk.dim(`  Is the host running? Check: claude-swarm host on ${resolvedAddress}`));
+      await removePidFile(projectPath);
       process.exit(1);
     }
+
+    process.on("SIGINT", async () => { await removePidFile(projectPath); process.exit(0); });
+    process.on("SIGTERM", async () => { await removePidFile(projectPath); process.exit(0); });
   });
 
 /**
@@ -503,6 +530,37 @@ program
       if (config.syncFilter.exclude) console.log(`  Exclude:  ${chalk.dim(config.syncFilter.exclude.join(", "))}`);
     }
     console.log();
+  });
+
+// ── stop ──────────────────────────────────────────────────────────
+program
+  .command("stop")
+  .description("Stop the running swarm process (host or joined client)")
+  .option("--project <path>", "Project path", process.cwd())
+  .action(async (opts) => {
+    const projectPath = resolve(opts.project);
+    const pidPath = pidFilePath(projectPath);
+
+    if (!existsSync(pidPath)) {
+      console.log(chalk.yellow("No running swarm found (no PID file)."));
+      process.exit(0);
+    }
+
+    const pid = parseInt(await readFile(pidPath, "utf-8"), 10);
+
+    try {
+      kill(pid, "SIGTERM");
+      console.log(chalk.green(`  Stopped swarm process (PID ${pid}).`));
+    } catch (err: unknown) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === "ESRCH") {
+        console.log(chalk.yellow(`  Process ${pid} already stopped.`));
+      } else {
+        console.error(chalk.red(`  Failed to stop process ${pid}: ${err}`));
+      }
+    }
+
+    await removePidFile(projectPath);
   });
 
 // ── install-hooks ──────────────────────────────────────────────────
