@@ -23,6 +23,12 @@
     "development"
   ],
   "license": "MIT",
+  "files": [
+    "dist",
+    "src",
+    ".claude/commands",
+    "README.md"
+  ],
   "engines": {
     "node": ">=20.12.0"
   },
