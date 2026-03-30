@@ -4,6 +4,8 @@ export interface SyncMessage {
   peerId: string;
   timestamp: number;
   payload: unknown;
+  /** When set, the server routes this message to a specific peer instead of broadcasting. */
+  targetPeerId?: string;
 }
 
 export type MessageType =
@@ -19,7 +21,10 @@ export type MessageType =
   | "request-sync"
   | "chat-message"
   | "activity"
-  | "history";
+  | "history"
+  | "exec-request"
+  | "exec-output"
+  | "exec-exit";
 
 export interface MemoryUpdatePayload {
   filePath: string;
@@ -78,6 +83,24 @@ export interface FileDeltaPayload {
 
 export interface PeerListPayload {
   peers: PeerInfo[];
+}
+
+export interface ExecRequestPayload {
+  execId: string;
+  command: string;
+  cwd?: string;
+}
+
+export interface ExecOutputPayload {
+  execId: string;
+  stream: "stdout" | "stderr";
+  data: string;
+}
+
+export interface ExecExitPayload {
+  execId: string;
+  code: number | null;
+  signal?: string;
 }
 
 export interface RoomConfig {

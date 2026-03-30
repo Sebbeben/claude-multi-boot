@@ -113,6 +113,22 @@ export class SyncServer {
         this.handleRequestSync(msg);
         return undefined;
 
+      case "exec-request":
+      case "exec-output":
+      case "exec-exit":
+        // Route exec messages to a specific peer (not broadcast)
+        if (msg.targetPeerId) {
+          // Verify sender and target are in the same room
+          const sender = this.peers.get(msg.peerId);
+          const target = this.peers.get(msg.targetPeerId);
+          if (sender && target && sender.roomId === target.roomId) {
+            this.sendToPeer(msg.targetPeerId, msg);
+          } else {
+            log("warn", `Blocked cross-room exec from ${msg.peerId} to ${msg.targetPeerId}`);
+          }
+        }
+        return undefined;
+
       default:
         // Store in history for replay (skip heartbeats and peer-lists)
         this.addToHistory(msg.roomId, msg);
@@ -253,6 +269,14 @@ export class SyncServer {
 
     if (ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify(historyMsg));
+    }
+  }
+
+  // ── Targeted send ───────────────────────────────────────────────
+  private sendToPeer(peerId: string, msg: SyncMessage): void {
+    const peer = this.peers.get(peerId);
+    if (peer && peer.ws.readyState === WebSocket.OPEN) {
+      peer.ws.send(JSON.stringify(msg));
     }
   }
 

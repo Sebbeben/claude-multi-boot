@@ -563,6 +563,108 @@ program
     await removePidFile(projectPath);
   });
 
+// ── exec ──────────────────────────────────────────────────────────
+program
+  .command("exec")
+  .description("Execute a command on a remote peer")
+  .argument("<target>", "Label or hostname of the target machine")
+  .argument("<command...>", "Command to execute")
+  .option("--project <path>", "Project path", process.cwd())
+  .action(async (target: string, commandParts: string[], opts) => {
+    const projectPath = resolve(opts.project);
+    const configPath = join(projectPath, ".claude-swarm.json");
+
+    if (!existsSync(configPath)) {
+      console.error(chalk.red("No .claude-swarm.json found."));
+      console.error(chalk.dim("Use 'claude-swarm host' or 'claude-swarm join' first."));
+      process.exit(1);
+    }
+
+    const config = JSON.parse(await readFile(configPath, "utf-8")) as RoomConfig & { machine: MachineIdentity };
+    const identity = await getMachineIdentity();
+    const command = commandParts.join(" ");
+
+    const client = new SyncClient(
+      config,
+      identity,
+      undefined, // onPeerUpdate
+      undefined, // onActivity
+      // onExecOutput
+      (_execId, stream, data) => {
+        if (stream === "stderr") {
+          process.stderr.write(data);
+        } else {
+          process.stdout.write(data);
+        }
+      },
+      // onExecExit
+      (_execId, code, signal) => {
+        if (signal) {
+          console.error(chalk.dim(`\n[exec] Process killed by ${signal}`));
+          client.disconnect();
+          process.exit(128);
+        } else {
+          console.error(chalk.dim(`\n[exec] Process exited with code ${code ?? 1}`));
+          client.disconnect();
+          process.exit(code ?? 1);
+        }
+      },
+    );
+
+    await client.connect();
+
+    // Wait for peer list to arrive (max 10 seconds)
+    const peerWaitTimeout = 10_000;
+    const peerWaitStart = Date.now();
+    await new Promise<void>((resolve, reject) => {
+      const check = () => {
+        if (client.getPeers().length > 0) {
+          resolve();
+        } else if (Date.now() - peerWaitStart > peerWaitTimeout) {
+          reject(new Error("Timed out waiting for peer list"));
+        } else {
+          setTimeout(check, 200);
+        }
+      };
+      setTimeout(check, 200);
+    }).catch((err) => {
+      console.error(chalk.red(`  ${err.message}`));
+      client.disconnect();
+      process.exit(1);
+    });
+
+    const peer = client.findPeerByLabel(target);
+    if (!peer) {
+      const peers = client.getPeers().filter((p) => p.id !== identity.peerId);
+      console.error(chalk.red(`  Peer "${target}" not found.`));
+      if (peers.length > 0) {
+        console.error(chalk.dim("  Available peers:"));
+        for (const p of peers) {
+          console.error(chalk.dim(`    - ${p.label} (${p.hostname})`));
+        }
+      } else {
+        console.error(chalk.dim("  No other peers connected."));
+      }
+      client.disconnect();
+      process.exit(1);
+    }
+
+    console.error(chalk.dim(`[exec] Running on ${peer.label} (${peer.ip}): ${command}\n`));
+    client.sendExecRequest(peer.id, command);
+
+    // Timeout after 5 minutes
+    setTimeout(() => {
+      console.error(chalk.yellow("\n[exec] Timed out after 5 minutes."));
+      client.disconnect();
+      process.exit(124);
+    }, 5 * 60 * 1000);
+
+    process.on("SIGINT", () => {
+      client.disconnect();
+      process.exit(130);
+    });
+  });
+
 // ── install-hooks ──────────────────────────────────────────────────
 program
   .command("install-hooks")

@@ -3,6 +3,8 @@ import { watch } from "chokidar";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
+import { spawn, type ChildProcess } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import {
   SyncMessage,
   MemoryUpdatePayload,
@@ -11,6 +13,9 @@ import {
   FileDeltaPayload,
   ChatMessagePayload,
   ActivityPayload,
+  ExecRequestPayload,
+  ExecOutputPayload,
+  ExecExitPayload,
   PeerInfo,
   PeerListPayload,
   RoomConfig,
@@ -50,18 +55,25 @@ export class SyncClient {
   private connected = false;
   private onPeerUpdate?: (peers: PeerInfo[]) => void;
   private onActivity?: (event: ActivityEvent) => void;
+  private onExecOutput?: (execId: string, stream: "stdout" | "stderr", data: string) => void;
+  private onExecExit?: (execId: string, code: number | null, signal?: string) => void;
+  private activeExecs = new Map<string, ChildProcess>();
 
   constructor(
     config: RoomConfig,
     machineIdentity: MachineIdentity,
     onPeerUpdate?: (peers: PeerInfo[]) => void,
     onActivity?: (event: ActivityEvent) => void,
+    onExecOutput?: (execId: string, stream: "stdout" | "stderr", data: string) => void,
+    onExecExit?: (execId: string, code: number | null, signal?: string) => void,
   ) {
     this.peerId = machineIdentity.peerId;
     this.config = config;
     this.machineIdentity = machineIdentity;
     this.onPeerUpdate = onPeerUpdate;
     this.onActivity = onActivity;
+    this.onExecOutput = onExecOutput;
+    this.onExecExit = onExecExit;
   }
 
   async connect(): Promise<void> {
@@ -319,6 +331,24 @@ export class SyncClient {
         break;
       }
 
+      case "exec-request": {
+        const execPayload = msg.payload as ExecRequestPayload;
+        this.handleExecRequest(msg.peerId, execPayload);
+        break;
+      }
+
+      case "exec-output": {
+        const outputPayload = msg.payload as ExecOutputPayload;
+        this.onExecOutput?.(outputPayload.execId, outputPayload.stream, outputPayload.data);
+        break;
+      }
+
+      case "exec-exit": {
+        const exitPayload = msg.payload as ExecExitPayload;
+        this.onExecExit?.(exitPayload.execId, exitPayload.code, exitPayload.signal);
+        break;
+      }
+
       case "leave": {
         // Server rejection or peer departure
         const leavePayload = msg.payload as { reason?: string };
@@ -550,6 +580,92 @@ export class SyncClient {
     });
   }
 
+  sendExecRequest(targetPeerId: string, command: string, cwd?: string): string {
+    const execId = randomBytes(8).toString("hex");
+    this.send({
+      type: "exec-request",
+      roomId: this.config.roomId,
+      peerId: this.peerId,
+      timestamp: timestamp(),
+      targetPeerId,
+      payload: { execId, command, cwd } satisfies ExecRequestPayload,
+    });
+    return execId;
+  }
+
+  findPeerByLabel(label: string): PeerInfo | undefined {
+    const lower = label.toLowerCase();
+    return this.peers.find(
+      (p) =>
+        p.id !== this.peerId &&
+        (p.label.toLowerCase() === lower ||
+          p.hostname.toLowerCase() === lower ||
+          p.label.toLowerCase().startsWith(lower) ||
+          p.hostname.toLowerCase().startsWith(lower)),
+    );
+  }
+
+  private handleExecRequest(requesterId: string, payload: ExecRequestPayload): void {
+    const { execId, command, cwd } = payload;
+    const requesterLabel = this.getPeerLabel(requesterId);
+    log("info", `Exec request from ${requesterLabel}: ${command}`);
+    this.emitActivity(requesterId, requesterLabel, this.getPeerIp(requesterId), "activity", `exec: ${command}`);
+
+    const execCwd = cwd ? join(this.config.projectPath, cwd) : this.config.projectPath;
+    const child = spawn(command, [], { shell: true, cwd: execCwd });
+    this.activeExecs.set(execId, child);
+
+    const sendOutput = (stream: "stdout" | "stderr", data: Buffer) => {
+      this.send({
+        type: "exec-output",
+        roomId: this.config.roomId,
+        peerId: this.peerId,
+        timestamp: timestamp(),
+        targetPeerId: requesterId,
+        payload: { execId, stream, data: data.toString() } satisfies ExecOutputPayload,
+      });
+    };
+
+    child.stdout?.on("data", (data: Buffer) => sendOutput("stdout", data));
+    child.stderr?.on("data", (data: Buffer) => sendOutput("stderr", data));
+
+    child.on("close", (code, signal) => {
+      this.activeExecs.delete(execId);
+      this.send({
+        type: "exec-exit",
+        roomId: this.config.roomId,
+        peerId: this.peerId,
+        timestamp: timestamp(),
+        targetPeerId: requesterId,
+        payload: {
+          execId,
+          code,
+          signal: signal ?? undefined,
+        } satisfies ExecExitPayload,
+      });
+    });
+
+    child.on("error", (err) => {
+      this.activeExecs.delete(execId);
+      this.send({
+        type: "exec-output",
+        roomId: this.config.roomId,
+        peerId: this.peerId,
+        timestamp: timestamp(),
+        targetPeerId: requesterId,
+        payload: { execId, stream: "stderr", data: `spawn error: ${err.message}\n` } satisfies ExecOutputPayload,
+      });
+      this.send({
+        type: "exec-exit",
+        roomId: this.config.roomId,
+        peerId: this.peerId,
+        timestamp: timestamp(),
+        targetPeerId: requesterId,
+        payload: { execId, code: 1 } satisfies ExecExitPayload,
+      });
+    });
+  }
+
   getLocalIdentity(): MachineIdentity {
     return this.machineIdentity;
   }
@@ -660,6 +776,11 @@ export class SyncClient {
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     if (this.watcher) this.watcher.close();
+    // Kill any active exec child processes
+    for (const [execId, child] of this.activeExecs) {
+      child.kill();
+      this.activeExecs.delete(execId);
+    }
     if (this.ws) this.ws.close();
     log("info", "Disconnected");
   }
