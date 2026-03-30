@@ -671,6 +671,107 @@ program
     });
   });
 
+// ── exec-all ──────────────────────────────────────────────────────
+program
+  .command("exec-all")
+  .description("Execute a command on all connected peers")
+  .argument("<command...>", "Command to execute")
+  .option("--project <path>", "Project path", process.cwd())
+  .action(async (commandParts: string[], opts) => {
+    const projectPath = resolve(opts.project);
+    const configPath = join(projectPath, ".claude-swarm.json");
+
+    if (!existsSync(configPath)) {
+      console.error(chalk.red("No .claude-swarm.json found."));
+      process.exit(1);
+    }
+
+    const config = JSON.parse(await readFile(configPath, "utf-8")) as RoomConfig & { machine: MachineIdentity };
+    const baseIdentity = await getMachineIdentity();
+    const identity: MachineIdentity = {
+      ...baseIdentity,
+      peerId: `exec-all-${Date.now().toString(36)}`,
+    };
+    const command = commandParts.join(" ");
+
+    // Collect results per peer
+    const results = new Map<string, { label: string; ip: string; stdout: string; stderr: string; code: number | null }>();
+    let pendingCount = 0;
+    let resolveAll: (() => void) | null = null;
+
+    const client = new SyncClient(
+      config,
+      identity,
+      undefined,
+      undefined,
+      // onExecOutput
+      (execId, stream, data) => {
+        const r = results.get(execId);
+        if (r) {
+          if (stream === "stderr") r.stderr += data;
+          else r.stdout += data;
+        }
+      },
+      // onExecExit
+      (execId, code) => {
+        const r = results.get(execId);
+        if (r) r.code = code;
+        pendingCount--;
+        if (pendingCount <= 0 && resolveAll) resolveAll();
+      },
+    );
+
+    await client.connect();
+
+    // Wait for peer list
+    const peerWaitStart = Date.now();
+    await new Promise<void>((resolve, reject) => {
+      const check = () => {
+        if (client.getPeers().length > 0) resolve();
+        else if (Date.now() - peerWaitStart > 10_000) reject(new Error("Timed out waiting for peer list"));
+        else setTimeout(check, 200);
+      };
+      setTimeout(check, 200);
+    }).catch((err) => {
+      console.error(chalk.red(`  ${err.message}`));
+      client.disconnect();
+      process.exit(1);
+    });
+
+    const peers = client.getPeers().filter((p) => p.id !== identity.peerId);
+    if (peers.length === 0) {
+      console.error(chalk.red("  No peers connected."));
+      client.disconnect();
+      process.exit(1);
+    }
+
+    // Send exec to all peers
+    pendingCount = peers.length;
+    for (const peer of peers) {
+      const execId = client.sendExecRequest(peer.id, command);
+      results.set(execId, { label: peer.label, ip: peer.ip, stdout: "", stderr: "", code: null });
+    }
+
+    // Wait for all to complete (max 5 minutes)
+    await Promise.race([
+      new Promise<void>((resolve) => { resolveAll = resolve; }),
+      new Promise<void>((_, reject) => setTimeout(() => reject(new Error("Timed out")), 5 * 60 * 1000)),
+    ]).catch(() => {});
+
+    // Print results with clear headers
+    for (const [, r] of results) {
+      console.log(`\n┌─── ${r.label} (${r.ip}) ───`);
+      if (r.stdout) process.stdout.write(r.stdout.endsWith("\n") ? r.stdout : r.stdout + "\n");
+      if (r.stderr) process.stderr.write(r.stderr);
+      const status = r.code === null ? "⧗ timed out" : r.code === 0 ? "✓ ok" : `✗ exit ${r.code}`;
+      console.log(`└─── ${status}`);
+    }
+
+    console.log();
+    client.disconnect();
+    process.exit(0);
+  });
+
 // ── install-hooks ──────────────────────────────────────────────────
 program
   .command("install-hooks")
