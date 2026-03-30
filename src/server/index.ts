@@ -182,6 +182,17 @@ export class SyncServer {
       this.peers.delete(tempId);
     }
 
+    // If a peer with the same peerId already exists (reconnect / duplicate),
+    // evict the stale connection so the new WebSocket takes over.
+    const existing = this.peers.get(peerId);
+    if (existing) {
+      log("info", `Evicting stale connection for ${peerId}`);
+      existing.ws.terminate();
+      const oldRoom = this.rooms.get(existing.roomId);
+      if (oldRoom) oldRoom.delete(peerId);
+      this.peers.delete(peerId);
+    }
+
     const peerInfo: PeerInfo = {
       id: peerId,
       hostname: joinPayload.hostname ?? "unknown",
