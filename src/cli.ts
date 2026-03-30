@@ -581,7 +581,13 @@ program
     }
 
     const config = JSON.parse(await readFile(configPath, "utf-8")) as RoomConfig & { machine: MachineIdentity };
-    const identity = await getMachineIdentity();
+    // Use an ephemeral identity so we don't evict the host/sync client
+    // which shares the same persisted peerId on this machine.
+    const baseIdentity = await getMachineIdentity();
+    const identity: MachineIdentity = {
+      ...baseIdentity,
+      peerId: `exec-${Date.now().toString(36)}`,
+    };
     const command = commandParts.join(" ");
 
     const client = new SyncClient(
