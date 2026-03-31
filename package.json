@@ -1,11 +1,11 @@
 {
-  "name": "claude-swarm",
+  "name": "claude-mesh",
   "version": "0.3.0",
   "description": "Sync Claude Code sessions across multiple machines in real-time",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "claude-swarm": "dist/cli.js"
+    "claude-mesh": "dist/cli.js"
   },
   "scripts": {
     "build": "tsc",

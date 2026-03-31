@@ -25,7 +25,7 @@ describe("CLI", () => {
 
   it("shows help", async () => {
     const { stdout } = await run(["--help"]);
-    expect(stdout).toContain("claude-swarm");
+    expect(stdout).toContain("claude-mesh");
     expect(stdout).toContain("host");
     expect(stdout).toContain("join");
     expect(stdout).toContain("serve");
@@ -52,17 +52,17 @@ describe("CLI", () => {
     let tempDir: string;
 
     beforeEach(async () => {
-      tempDir = await mkdtemp(join(tmpdir(), "swarm-cli-init-"));
+      tempDir = await mkdtemp(join(tmpdir(), "mesh-cli-init-"));
     });
 
     afterEach(async () => {
       await rm(tempDir, { recursive: true, force: true });
     });
 
-    it("creates .claude-swarm.json config file", async () => {
+    it("creates .claude-mesh.json config file", async () => {
       await run(["init", "--project", tempDir, "--label", "test-machine"]);
 
-      const configPath = join(tempDir, ".claude-swarm.json");
+      const configPath = join(tempDir, ".claude-mesh.json");
       expect(existsSync(configPath)).toBe(true);
 
       const config = JSON.parse(await readFile(configPath, "utf-8"));
@@ -77,14 +77,14 @@ describe("CLI", () => {
     it("uses provided room ID", async () => {
       await run(["init", "--project", tempDir, "--room", "custom-room-123"]);
 
-      const config = JSON.parse(await readFile(join(tempDir, ".claude-swarm.json"), "utf-8"));
+      const config = JSON.parse(await readFile(join(tempDir, ".claude-mesh.json"), "utf-8"));
       expect(config.roomId).toBe("custom-room-123");
     });
 
     it("uses provided server URL", async () => {
       await run(["init", "--project", tempDir, "--server", "ws://myserver:9999"]);
 
-      const config = JSON.parse(await readFile(join(tempDir, ".claude-swarm.json"), "utf-8"));
+      const config = JSON.parse(await readFile(join(tempDir, ".claude-mesh.json"), "utf-8"));
       expect(config.serverUrl).toBe("ws://myserver:9999");
     });
   });
@@ -93,7 +93,7 @@ describe("CLI", () => {
     let tempDir: string;
 
     beforeEach(async () => {
-      tempDir = await mkdtemp(join(tmpdir(), "swarm-cli-status-"));
+      tempDir = await mkdtemp(join(tmpdir(), "mesh-cli-status-"));
     });
 
     afterEach(async () => {
@@ -117,7 +117,7 @@ describe("CLI", () => {
       await run(["init", "--project", tempDir, "--label", "status-test"]);
 
       const { stdout } = await run(["status", "--project", tempDir]);
-      expect(stdout).toContain("claude-swarm");
+      expect(stdout).toContain("claude-mesh");
       expect(stdout).toContain("Room");
     });
   });
@@ -126,7 +126,7 @@ describe("CLI", () => {
     let tempDir: string;
 
     beforeEach(async () => {
-      tempDir = await mkdtemp(join(tmpdir(), "swarm-cli-hooks-"));
+      tempDir = await mkdtemp(join(tmpdir(), "mesh-cli-hooks-"));
     });
 
     afterEach(async () => {
@@ -176,7 +176,7 @@ describe("CLI", () => {
 
   describe("sync command", () => {
     it("errors when no config file exists", async () => {
-      const tempDir = await mkdtemp(join(tmpdir(), "swarm-cli-sync-"));
+      const tempDir = await mkdtemp(join(tmpdir(), "mesh-cli-sync-"));
       try {
         await run(["sync", "--project", tempDir]);
         expect.fail("should have thrown");

@@ -27,7 +27,7 @@ function identity(label: string): MachineIdentity {
   };
 }
 
-describe("Integration: Full swarm workflow", () => {
+describe("Integration: Full mesh workflow", () => {
   let server: SyncServer;
   let port: number;
   let dirA: string;
@@ -38,9 +38,9 @@ describe("Integration: Full swarm workflow", () => {
     port = nextPort();
     server = new SyncServer();
     server.start(port);
-    dirA = await mkdtemp(join(tmpdir(), "swarm-int-a-"));
-    dirB = await mkdtemp(join(tmpdir(), "swarm-int-b-"));
-    dirC = await mkdtemp(join(tmpdir(), "swarm-int-c-"));
+    dirA = await mkdtemp(join(tmpdir(), "mesh-int-a-"));
+    dirB = await mkdtemp(join(tmpdir(), "mesh-int-b-"));
+    dirC = await mkdtemp(join(tmpdir(), "mesh-int-c-"));
   });
 
   afterEach(async () => {
@@ -241,7 +241,7 @@ describe("Integration: Full swarm workflow", () => {
 
     function generateRoomFromAddress(address: string, port: number): string {
       return createHash("sha256")
-        .update(`claude-swarm:${address}:${port}`)
+        .update(`claude-mesh:${address}:${port}`)
         .digest("hex")
         .slice(0, 12);
     }

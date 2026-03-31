@@ -1,4 +1,4 @@
-# claude-swarm
+# claude-mesh
 
 Sync Claude Code sessions across multiple machines in real-time. Run one Claude conversation and keep context, memory, and session events synchronized across all your development machines.
 
@@ -27,7 +27,7 @@ Supports **unlimited machines** in a single room — not just 2!
 
 ## Machine Identity
 
-Each machine gets a persistent identity stored in `~/.claude-swarm/identity.json`:
+Each machine gets a persistent identity stored in `~/.claude-mesh/identity.json`:
 - **Label** — human-readable name (e.g., "work-laptop", "home-desktop")
 - **Hostname** — OS hostname
 - **IP** — local network IP address
@@ -83,16 +83,16 @@ npm install
 # Build from source
 npm run build
 
-# Link globally so "claude-swarm" works from anywhere
+# Link globally so "claude-mesh" works from anywhere
 npm link
 ```
 
-After linking, the `claude-swarm` command is available system-wide.
+After linking, the `claude-mesh` command is available system-wide.
 
 ### Option B: Install from npm (once published)
 
 ```bash
-npm install -g claude-swarm
+npm install -g claude-mesh
 ```
 
 ### Option C: Use without global install
@@ -100,7 +100,7 @@ npm install -g claude-swarm
 If you don't want to install globally, you can run commands directly:
 
 ```bash
-cd /path/to/claude-swarm
+cd /path/to/claude-mesh
 node dist/cli.js host                         # Machine A
 node dist/cli.js join 192.168.1.10            # Machine B
 ```
@@ -108,37 +108,37 @@ node dist/cli.js join 192.168.1.10            # Machine B
 ### Verify installation
 
 ```bash
-claude-swarm --version
+claude-mesh --version
 # 0.2.0
 
-claude-swarm --help
+claude-mesh --help
 ```
 
 ## Quick Start
 
-### Machine A — start a swarm
+### Machine A — start a mesh
 
 ```bash
 cd /your/project
-claude-swarm host
+claude-mesh host
 ```
 
 That's it. This starts the relay server, connects you, and prints:
 
 ```
-  Swarm started! Relay running on port 24680
+  Mesh started! Relay running on port 24680
   Machine:  work-laptop (192.168.1.10, linux/x64)
 
   Others can join with:
 
-    claude-swarm join 192.168.1.10
+    claude-mesh join 192.168.1.10
 ```
 
-### Machine B — join the swarm
+### Machine B — join the mesh
 
 ```bash
 cd /your/project
-claude-swarm join 192.168.1.10
+claude-mesh join 192.168.1.10
 ```
 
 Done. You're synced. Repeat on as many machines as you want.
@@ -147,29 +147,29 @@ Done. You're synced. Repeat on as many machines as you want.
 
 You'll see the colored activity feed showing all connected machines. Type messages to chat between machines.
 
-### Stopping the swarm
+### Stopping the mesh
 
 ```bash
 # Stop from any context (terminal, Claude Code, SSH)
-claude-swarm stop
+claude-mesh stop
 ```
 
-This finds the running swarm process via its PID file and gracefully shuts it down. Works for both hosts and joined clients.
+This finds the running mesh process via its PID file and gracefully shuts it down. Works for both hosts and joined clients.
 
 ### Options
 
 ```bash
 # Custom port
-claude-swarm host --port 3000
-claude-swarm join 192.168.1.10 --port 3000
+claude-mesh host --port 3000
+claude-mesh join 192.168.1.10 --port 3000
 
 # Custom machine label
-claude-swarm host --label "work-laptop"
-claude-swarm join 192.168.1.10 --label "home-desktop"
+claude-mesh host --label "work-laptop"
+claude-mesh join 192.168.1.10 --label "home-desktop"
 
 # Token authentication
-claude-swarm host --token
-claude-swarm join 192.168.1.10 --token <token>
+claude-mesh host --token
+claude-mesh join 192.168.1.10 --token <token>
 ```
 
 ### (Optional) Install Claude Code hooks
@@ -177,23 +177,23 @@ claude-swarm join 192.168.1.10 --token <token>
 For automatic session event broadcasting when Claude edits files or runs commands:
 
 ```bash
-claude-swarm install-hooks
+claude-mesh install-hooks
 ```
 
 This writes hook config to `.claude/settings.local.json` in your project.
 
 ## Claude Code Slash Commands
 
-When working in a project with claude-swarm installed, these slash commands are available in the Claude Code chat:
+When working in a project with claude-mesh installed, these slash commands are available in the Claude Code chat:
 
 | Command | Description |
 |---------|-------------|
-| `/swarm-host` | Start hosting a swarm |
-| `/swarm-join [address]` | Join an existing swarm |
-| `/swarm-stop` | Stop the running swarm |
-| `/swarm-leave` | Leave a swarm (alias for stop) |
-| `/swarm-status` | Show sync status |
-| `/swarm-dashboard` | Open live dashboard |
+| `/mesh-host` | Start hosting a mesh |
+| `/mesh-join [address]` | Join an existing mesh |
+| `/mesh-stop` | Stop the running mesh |
+| `/mesh-leave` | Leave a mesh (alias for stop) |
+| `/mesh-status` | Show sync status |
+| `/mesh-dashboard` | Open live dashboard |
 
 ## What Gets Synced
 
@@ -209,20 +209,20 @@ When working in a project with claude-swarm installed, these slash commands are 
 
 | Command | Description |
 |---------|-------------|
-| `claude-swarm host` | Start a swarm (server + sync in one command) |
-| `claude-swarm join <ip>` | Join a swarm by IP, hostname, or auto-discovery |
-| `claude-swarm stop` | Stop the running swarm process |
-| `claude-swarm status` | Show current sync config |
-| `claude-swarm dashboard` | Live status dashboard with peers and activity |
-| `claude-swarm install-hooks` | Install Claude Code hooks |
+| `claude-mesh host` | Start a mesh (server + sync in one command) |
+| `claude-mesh join <ip>` | Join a mesh by IP, hostname, or auto-discovery |
+| `claude-mesh stop` | Stop the running mesh process |
+| `claude-mesh status` | Show current sync config |
+| `claude-mesh dashboard` | Live status dashboard with peers and activity |
+| `claude-mesh install-hooks` | Install Claude Code hooks |
 
 **Advanced** (manual control):
 
 | Command | Description |
 |---------|-------------|
-| `claude-swarm serve` | Start only the relay server |
-| `claude-swarm init` | Initialize config manually |
-| `claude-swarm sync` | Sync with existing config |
+| `claude-mesh serve` | Start only the relay server |
+| `claude-mesh init` | Initialize config manually |
+| `claude-mesh sync` | Sync with existing config |
 
 ## Multi-Network Support
 
@@ -241,7 +241,7 @@ Home LAN (192.168.1.x)          VPN (172.16.x.x)
 
 ## Configuration
 
-### `.claude-swarm.json` (per project)
+### `.claude-mesh.json` (per project)
 
 ```json
 {
@@ -264,13 +264,13 @@ Home LAN (192.168.1.x)          VPN (172.16.x.x)
 }
 ```
 
-### `~/.claude-swarm/identity.json` (per machine)
+### `~/.claude-mesh/identity.json` (per machine)
 
 Persistent machine identity. Auto-generated on first run, or set with `--label`.
 
-### `.claude-swarm.pid` (per project)
+### `.claude-mesh.pid` (per project)
 
-PID file for the running swarm process. Used by `claude-swarm stop` to find and kill the process. Automatically created on start and removed on exit.
+PID file for the running mesh process. Used by `claude-mesh stop` to find and kill the process. Automatically created on start and removed on exit.
 
 ## Security Notes
 

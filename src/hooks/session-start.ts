@@ -14,7 +14,7 @@
  *       "matcher": "",
  *       "hooks": [{
  *         "type": "command",
- *         "command": "node /path/to/claude-swarm/dist/hooks/session-start.js"
+ *         "command": "node /path/to/claude-mesh/dist/hooks/session-start.js"
  *       }]
  *     }]
  *   }
@@ -42,10 +42,10 @@ async function main(): Promise<void> {
     input = { session_id: "unknown", cwd: process.cwd() };
   }
 
-  const configPath = join(input.cwd, ".claude-swarm.json");
+  const configPath = join(input.cwd, ".claude-mesh.json");
 
   if (!existsSync(configPath)) {
-    log("debug", "No .claude-swarm.json found, skipping sync");
+    log("debug", "No .claude-mesh.json found, skipping sync");
     process.exit(0);
   }
 
@@ -62,7 +62,7 @@ async function main(): Promise<void> {
       const safeServer = config.serverUrl.replace(/['"\\$`!]/g, "");
       await writeFile(
         envFile,
-        `export CLAUDE_SWARM_ROOM="${safeRoom}"\nexport CLAUDE_SWARM_SERVER="${safeServer}"\n`,
+        `export CLAUDE_MESH_ROOM="${safeRoom}"\nexport CLAUDE_MESH_SERVER="${safeServer}"\n`,
         { flag: "a" }
       );
     }
@@ -71,7 +71,7 @@ async function main(): Promise<void> {
     const output = {
       hookSpecificOutput: {
         hookEventName: "SessionStart",
-        context: `[claude-swarm] Connected to sync room "${config.roomId}" with ${config.peers?.length ?? 0} peer(s). Session context is being synced across machines.`,
+        context: `[claude-mesh] Connected to sync room "${config.roomId}" with ${config.peers?.length ?? 0} peer(s). Session context is being synced across machines.`,
       },
     };
     process.stdout.write(JSON.stringify(output));

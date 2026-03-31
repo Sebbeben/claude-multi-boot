@@ -2,7 +2,7 @@
 
 const [major, minor] = process.versions.node.split(".").map(Number);
 if (major < 20 || (major === 20 && minor < 12)) {
-  console.error(`claude-swarm requires Node.js >= 20.12.0 (current: ${process.version})`);
+  console.error(`claude-mesh requires Node.js >= 20.12.0 (current: ${process.version})`);
   process.exit(1);
 }
 
@@ -26,7 +26,7 @@ import { DiscoveryBroadcaster, DiscoveryListener } from "./shared/discovery.js";
 const program = new Command();
 
 program
-  .name("claude-swarm")
+  .name("claude-mesh")
   .description("Sync Claude Code sessions across multiple machines")
   .version("0.2.0");
 
@@ -61,13 +61,13 @@ async function saveConfig(
   projectPath: string,
   config: RoomConfig & { machine: MachineIdentity },
 ): Promise<string> {
-  const configPath = join(projectPath, ".claude-swarm.json");
+  const configPath = join(projectPath, ".claude-mesh.json");
   await writeFile(configPath, JSON.stringify(config, null, 2));
   return configPath;
 }
 
 function pidFilePath(projectPath: string): string {
-  return join(projectPath, ".claude-swarm.pid");
+  return join(projectPath, ".claude-mesh.pid");
 }
 
 async function writePidFile(projectPath: string): Promise<void> {
@@ -179,8 +179,8 @@ async function updateClaudeContext(
     }));
 
   const contextBlock = generateMachineContext(localIdentity, peerMachines);
-  const marker = "<!-- claude-swarm:start -->";
-  const endMarker = "<!-- claude-swarm:end -->";
+  const marker = "<!-- claude-mesh:start -->";
+  const endMarker = "<!-- claude-mesh:end -->";
   const wrappedBlock = `${marker}\n${contextBlock}\n${endMarker}`;
 
   if (content.includes(marker)) {
@@ -201,7 +201,7 @@ async function updateClaudeContext(
 // ── host ───────────────────────────────────────────────────────────
 program
   .command("host")
-  .description("Start a swarm — runs the relay server and connects as the first machine")
+  .description("Start a mesh — runs the relay server and connects as the first machine")
   .option("-p, --port <port>", "Port to listen on", String(DEFAULT_PORT))
   .option("-l, --label <name>", "Label for this machine")
   .option("--project <path>", "Project path", process.cwd())
@@ -237,8 +237,8 @@ program
     await writePidFile(projectPath);
 
     // 4. Print join instructions
-    console.log(chalk.green.bold("\n  claude-swarm host\n"));
-    console.log(`  Swarm started! Relay running on port ${chalk.cyan(String(port))}`);
+    console.log(chalk.green.bold("\n  claude-mesh host\n"));
+    console.log(`  Mesh started! Relay running on port ${chalk.cyan(String(port))}`);
     console.log(`  Machine:  ${chalk.yellow(formatMachineId(identity))}`);
     console.log(`  Room:     ${chalk.cyan(roomId)}`);
     if (token) {
@@ -248,13 +248,13 @@ program
     console.log(chalk.bold("  Others can join with:"));
     console.log();
     if (token) {
-      console.log(`    ${chalk.cyan.bold(`claude-swarm join ${localIp} --token ${token}`)}`);
+      console.log(`    ${chalk.cyan.bold(`claude-mesh join ${localIp} --token ${token}`)}`);
     } else {
-      console.log(`    ${chalk.cyan.bold(`claude-swarm join ${localIp}`)}`);
+      console.log(`    ${chalk.cyan.bold(`claude-mesh join ${localIp}`)}`);
     }
     console.log();
     console.log(chalk.dim("  Or auto-discover on LAN:"));
-    console.log(`    ${chalk.cyan.bold("claude-swarm join")}`);
+    console.log(`    ${chalk.cyan.bold("claude-mesh join")}`);
     console.log();
     if (localIp === "127.0.0.1") {
       console.log(chalk.yellow("  Warning: No external network interface detected."));
@@ -289,7 +289,7 @@ program
 // ── join ───────────────────────────────────────────────────────────
 program
   .command("join")
-  .description("Join an existing swarm by IP address, hostname, or auto-discovery")
+  .description("Join an existing mesh by IP address, hostname, or auto-discovery")
   .argument("[address]", "IP address or hostname of the host (omit for auto-discovery)")
   .option("-p, --port <port>", "Port the host is running on", String(DEFAULT_PORT))
   .option("-l, --label <name>", "Label for this machine")
@@ -307,8 +307,8 @@ program
 
     // Auto-discovery if no address provided
     if (!resolvedAddress) {
-      console.log(chalk.green.bold("\n  claude-swarm join\n"));
-      console.log(chalk.dim("  Searching for swarms on the local network..."));
+      console.log(chalk.green.bold("\n  claude-mesh join\n"));
+      console.log(chalk.dim("  Searching for meshs on the local network..."));
 
       const listener = new DiscoveryListener();
       try {
@@ -317,28 +317,28 @@ program
         listener.stop();
 
         if (!host) {
-          console.error(chalk.red("  No swarm found on the local network."));
-          console.error(chalk.dim("  Try specifying an address: claude-swarm join <ip>"));
+          console.error(chalk.red("  No mesh found on the local network."));
+          console.error(chalk.dim("  Try specifying an address: claude-mesh join <ip>"));
           process.exit(1);
         }
 
         resolvedAddress = host.address;
         if (host.tokenRequired && !token) {
-          console.error(chalk.red("  This swarm requires a token. Use: claude-swarm join --token <token>"));
+          console.error(chalk.red("  This mesh requires a token. Use: claude-mesh join --token <token>"));
           process.exit(1);
         }
-        console.log(`  Found swarm: ${chalk.cyan(host.label)} at ${chalk.cyan(`${host.address}:${host.port}`)}`);
+        console.log(`  Found mesh: ${chalk.cyan(host.label)} at ${chalk.cyan(`${host.address}:${host.port}`)}`);
       } catch (err) {
         listener.stop();
         console.error(chalk.red(`  Auto-discovery failed: ${err}`));
-        console.error(chalk.dim("  Try specifying an address: claude-swarm join <ip>"));
+        console.error(chalk.dim("  Try specifying an address: claude-mesh join <ip>"));
         process.exit(1);
       }
     }
 
     const serverUrl = `ws://${resolvedAddress}:${port}`;
 
-    console.log(chalk.green.bold("\n  claude-swarm join\n"));
+    console.log(chalk.green.bold("\n  claude-mesh join\n"));
     console.log(`  Connecting to ${chalk.cyan(serverUrl)}...`);
 
     const roomId = generateRoomFromAddress(resolvedAddress, port);
@@ -371,7 +371,7 @@ program
       await startSyncUI(config, identity, projectPath);
     } catch (err) {
       console.error(chalk.red(`  Failed to connect: ${err}`));
-      console.error(chalk.dim(`  Is the host running? Check: claude-swarm host on ${resolvedAddress}`));
+      console.error(chalk.dim(`  Is the host running? Check: claude-mesh host on ${resolvedAddress}`));
       await removePidFile(projectPath);
       process.exit(1);
     }
@@ -385,7 +385,7 @@ program
  */
 function generateRoomFromAddress(address: string, port: number): string {
   return createHash("sha256")
-    .update(`claude-swarm:${address}:${port}`)
+    .update(`claude-mesh:${address}:${port}`)
     .digest("hex")
     .slice(0, 12);
 }
@@ -397,11 +397,11 @@ program
   .option("--project <path>", "Project path", process.cwd())
   .action(async (opts) => {
     const projectPath = resolve(opts.project);
-    const configPath = join(projectPath, ".claude-swarm.json");
+    const configPath = join(projectPath, ".claude-mesh.json");
 
     if (!existsSync(configPath)) {
-      console.error(chalk.red("No .claude-swarm.json found."));
-      console.error(chalk.dim("Use 'claude-swarm host' to start a swarm first."));
+      console.error(chalk.red("No .claude-mesh.json found."));
+      console.error(chalk.dim("Use 'claude-mesh host' to start a mesh first."));
       process.exit(1);
     }
 
@@ -430,7 +430,7 @@ program
     const server = new SyncServer(serverOpts);
     server.start(port);
 
-    console.log(chalk.green.bold("\n  claude-swarm relay server\n"));
+    console.log(chalk.green.bold("\n  claude-mesh relay server\n"));
     console.log(`  Listening on: ${chalk.cyan(`ws://0.0.0.0:${port}`)}`);
     if (opts.token) console.log(`  Token auth:   ${chalk.magenta("enabled")}`);
     console.log(`  Share this address with other machines to connect.\n`);
@@ -454,17 +454,17 @@ program
     const config = buildConfig(roomId, opts.server, projectPath, identity, opts.token);
     const configPath = await saveConfig(projectPath, config);
 
-    console.log(chalk.green.bold("\n  claude-swarm initialized!\n"));
+    console.log(chalk.green.bold("\n  claude-mesh initialized!\n"));
     console.log(`  Config:   ${chalk.dim(configPath)}`);
     console.log(`  Room ID:  ${chalk.cyan(roomId)}`);
     console.log(`  Server:   ${chalk.cyan(opts.server)}`);
     console.log(`  Machine:  ${chalk.yellow(formatMachineId(identity))}`);
     console.log();
     console.log(chalk.dim("  On another machine, run:"));
-    console.log(`  ${chalk.white(`claude-swarm init --server ${opts.server} --room ${roomId}`)}`);
+    console.log(`  ${chalk.white(`claude-mesh init --server ${opts.server} --room ${roomId}`)}`);
     console.log();
     console.log(chalk.dim("  Then start syncing:"));
-    console.log(`  ${chalk.white("claude-swarm sync")}`);
+    console.log(`  ${chalk.white("claude-mesh sync")}`);
     console.log();
   });
 
@@ -475,18 +475,18 @@ program
   .option("--project <path>", "Project path", process.cwd())
   .action(async (opts) => {
     const projectPath = resolve(opts.project);
-    const configPath = join(projectPath, ".claude-swarm.json");
+    const configPath = join(projectPath, ".claude-mesh.json");
 
     if (!existsSync(configPath)) {
-      console.error(chalk.red("No .claude-swarm.json found."));
-      console.error(chalk.dim("Use 'claude-swarm host' to start a swarm or 'claude-swarm join <ip>' to join one."));
+      console.error(chalk.red("No .claude-mesh.json found."));
+      console.error(chalk.dim("Use 'claude-mesh host' to start a mesh or 'claude-mesh join <ip>' to join one."));
       process.exit(1);
     }
 
     const config = JSON.parse(await readFile(configPath, "utf-8")) as RoomConfig & { machine: MachineIdentity };
     const identity = await getMachineIdentity();
 
-    console.log(chalk.green.bold("\n  claude-swarm sync\n"));
+    console.log(chalk.green.bold("\n  claude-mesh sync\n"));
     console.log(`  Machine:  ${chalk.yellow(formatMachineId(identity))}`);
     console.log(`  Room:     ${chalk.cyan(config.roomId)}`);
     console.log(`  Server:   ${chalk.cyan(config.serverUrl)}`);
@@ -508,10 +508,10 @@ program
   .option("--project <path>", "Project path", process.cwd())
   .action(async (opts) => {
     const projectPath = resolve(opts.project);
-    const configPath = join(projectPath, ".claude-swarm.json");
+    const configPath = join(projectPath, ".claude-mesh.json");
 
     if (!existsSync(configPath)) {
-      console.log(chalk.yellow("Not initialized. Run 'claude-swarm host' to start a swarm."));
+      console.log(chalk.yellow("Not initialized. Run 'claude-mesh host' to start a mesh."));
       process.exit(0);
     }
 
@@ -519,7 +519,7 @@ program
     const identity = await getMachineIdentity();
     const statusColorMap = new MachineColorMap();
 
-    console.log(chalk.bold("\n  claude-swarm status\n"));
+    console.log(chalk.bold("\n  claude-mesh status\n"));
     console.log(`  Machine:  ${statusColorMap.formatMessage(identity.peerId, identity.label, formatMachineId(identity))}`);
     console.log(`  Color:    ${statusColorMap.getColor(identity.peerId)(statusColorMap.getColorName(identity.peerId))}`);
     console.log(`  Room:     ${chalk.cyan(config.roomId)}`);
@@ -535,14 +535,14 @@ program
 // ── stop ──────────────────────────────────────────────────────────
 program
   .command("stop")
-  .description("Stop the running swarm process (host or joined client)")
+  .description("Stop the running mesh process (host or joined client)")
   .option("--project <path>", "Project path", process.cwd())
   .action(async (opts) => {
     const projectPath = resolve(opts.project);
     const pidPath = pidFilePath(projectPath);
 
     if (!existsSync(pidPath)) {
-      console.log(chalk.yellow("No running swarm found (no PID file)."));
+      console.log(chalk.yellow("No running mesh found (no PID file)."));
       process.exit(0);
     }
 
@@ -550,7 +550,7 @@ program
 
     try {
       kill(pid, "SIGTERM");
-      console.log(chalk.green(`  Stopped swarm process (PID ${pid}).`));
+      console.log(chalk.green(`  Stopped mesh process (PID ${pid}).`));
     } catch (err: unknown) {
       const code = (err as NodeJS.ErrnoException).code;
       if (code === "ESRCH") {
@@ -572,11 +572,11 @@ program
   .option("--project <path>", "Project path", process.cwd())
   .action(async (target: string, commandParts: string[], opts) => {
     const projectPath = resolve(opts.project);
-    const configPath = join(projectPath, ".claude-swarm.json");
+    const configPath = join(projectPath, ".claude-mesh.json");
 
     if (!existsSync(configPath)) {
-      console.error(chalk.red("No .claude-swarm.json found."));
-      console.error(chalk.dim("Use 'claude-swarm host' or 'claude-swarm join' first."));
+      console.error(chalk.red("No .claude-mesh.json found."));
+      console.error(chalk.dim("Use 'claude-mesh host' or 'claude-mesh join' first."));
       process.exit(1);
     }
 
@@ -679,10 +679,10 @@ program
   .option("--project <path>", "Project path", process.cwd())
   .action(async (commandParts: string[], opts) => {
     const projectPath = resolve(opts.project);
-    const configPath = join(projectPath, ".claude-swarm.json");
+    const configPath = join(projectPath, ".claude-mesh.json");
 
     if (!existsSync(configPath)) {
-      console.error(chalk.red("No .claude-swarm.json found."));
+      console.error(chalk.red("No .claude-mesh.json found."));
       process.exit(1);
     }
 
@@ -789,7 +789,7 @@ program
       settings = JSON.parse(await readFile(settingsPath, "utf-8"));
     }
 
-    const distDir = join(projectPath, "node_modules", "claude-swarm", "dist");
+    const distDir = join(projectPath, "node_modules", "claude-mesh", "dist");
     const hooksDir = existsSync(distDir) ? distDir : join(projectPath, "dist");
 
     const hooks: Record<string, unknown[]> = (settings.hooks as Record<string, unknown[]>) ?? {};

@@ -5,7 +5,7 @@ import { hashContent } from "./utils.js";
  *
  * Strategy:
  * - The file is split into sections by markdown headings (## or #).
- * - The claude-swarm managed block is always replaced wholesale.
+ * - The claude-mesh managed block is always replaced wholesale.
  * - Other sections are merged: if both local and remote changed the same
  *   section, we keep both with a conflict marker.
  * - New sections from remote are appended.
@@ -22,17 +22,17 @@ interface Section {
   body: string;    // Full text including heading
 }
 
-const SWARM_START = "<!-- claude-swarm:start -->";
-const SWARM_END = "<!-- claude-swarm:end -->";
+const MESH_START = "<!-- claude-mesh:start -->";
+const MESH_END = "<!-- claude-mesh:end -->";
 
-function extractSwarmBlock(content: string): { block: string; rest: string } {
-  const startIdx = content.indexOf(SWARM_START);
-  const endIdx = content.indexOf(SWARM_END);
+function extractMeshBlock(content: string): { block: string; rest: string } {
+  const startIdx = content.indexOf(MESH_START);
+  const endIdx = content.indexOf(MESH_END);
   if (startIdx === -1 || endIdx === -1) {
     return { block: "", rest: content };
   }
-  const block = content.slice(startIdx, endIdx + SWARM_END.length);
-  const rest = (content.slice(0, startIdx) + content.slice(endIdx + SWARM_END.length)).trim();
+  const block = content.slice(startIdx, endIdx + MESH_END.length);
+  const rest = (content.slice(0, startIdx) + content.slice(endIdx + MESH_END.length)).trim();
   return { block, rest };
 }
 
@@ -92,8 +92,8 @@ export function mergeClaudeMd(
   }
 
   // Both changed — do section-level merge
-  const { block: remoteSwarm, rest: remoteRest } = extractSwarmBlock(remote);
-  const { rest: localRest } = extractSwarmBlock(local);
+  const { block: remoteMesh, rest: remoteRest } = extractMeshBlock(remote);
+  const { rest: localRest } = extractMeshBlock(local);
 
   const localSections = parseSections(localRest);
   const remoteSections = parseSections(remoteRest);
@@ -137,10 +137,10 @@ export function mergeClaudeMd(
     }
   }
 
-  // Re-attach the swarm block (always use latest remote version)
+  // Re-attach the mesh block (always use latest remote version)
   let finalContent = merged.join("\n\n");
-  if (remoteSwarm) {
-    finalContent = finalContent + "\n\n" + remoteSwarm;
+  if (remoteMesh) {
+    finalContent = finalContent + "\n\n" + remoteMesh;
   }
 
   return {

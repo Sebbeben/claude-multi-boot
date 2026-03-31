@@ -27,7 +27,7 @@ describe("getMachineIdentity", () => {
   const originalHome = process.env.HOME;
 
   beforeEach(async () => {
-    tempDir = await mkdtemp(join(tmpdir(), "claude-swarm-test-"));
+    tempDir = await mkdtemp(join(tmpdir(), "claude-mesh-test-"));
     process.env.HOME = tempDir;
   });
 
@@ -48,7 +48,7 @@ describe("getMachineIdentity", () => {
 
   it("persists identity to disk", async () => {
     const identity = await getMachineIdentity();
-    const filePath = join(tempDir, ".claude-swarm", "identity.json");
+    const filePath = join(tempDir, ".claude-mesh", "identity.json");
     const stored = JSON.parse(await readFile(filePath, "utf-8"));
     expect(stored.peerId).toBe(identity.peerId);
   });
@@ -174,8 +174,8 @@ describe("generateMachineContext", () => {
     expect(ctx).toContain("Total machines in room:** 3");
   });
 
-  it("contains the claude-swarm header", () => {
+  it("contains the claude-mesh header", () => {
     const ctx = generateMachineContext(local, []);
-    expect(ctx).toContain("claude-swarm");
+    expect(ctx).toContain("claude-mesh");
   });
 });

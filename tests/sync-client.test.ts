@@ -43,7 +43,7 @@ describe("SyncClient", () => {
   let port: number;
 
   beforeEach(async () => {
-    tempDir = await mkdtemp(join(tmpdir(), "claude-swarm-client-test-"));
+    tempDir = await mkdtemp(join(tmpdir(), "claude-mesh-client-test-"));
     port = nextPort();
     server = new SyncServer();
     server.start(port);
@@ -136,8 +136,8 @@ describe("SyncClient", () => {
   });
 
   it("syncs CLAUDE.md changes between clients", async () => {
-    const tempDirA = await mkdtemp(join(tmpdir(), "swarm-a-"));
-    const tempDirB = await mkdtemp(join(tmpdir(), "swarm-b-"));
+    const tempDirA = await mkdtemp(join(tmpdir(), "mesh-a-"));
+    const tempDirB = await mkdtemp(join(tmpdir(), "mesh-b-"));
 
     try {
       const identityA = createIdentity("machine-a");
@@ -268,8 +268,8 @@ describe("SyncClient", () => {
   });
 
   it("blocks path traversal in file-change messages", async () => {
-    const tempDirA = await mkdtemp(join(tmpdir(), "swarm-traverse-a-"));
-    const tempDirB = await mkdtemp(join(tmpdir(), "swarm-traverse-b-"));
+    const tempDirA = await mkdtemp(join(tmpdir(), "mesh-traverse-a-"));
+    const tempDirB = await mkdtemp(join(tmpdir(), "mesh-traverse-b-"));
 
     try {
       const identityA = createIdentity("attacker");

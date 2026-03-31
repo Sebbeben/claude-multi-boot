@@ -12,7 +12,7 @@ import { log } from "./utils.js";
 
 const DISCOVERY_PORT = 24681; // One above default relay port
 const BROADCAST_INTERVAL = 2000;
-const DISCOVERY_MAGIC = "claude-swarm-v1";
+const DISCOVERY_MAGIC = "claude-mesh-v1";
 
 export interface DiscoveredHost {
   address: string;
@@ -49,7 +49,7 @@ export class DiscoveryBroadcaster {
     this.socket = createSocket({ type: "udp4", reuseAddr: true });
     this.socket.bind(() => {
       this.socket!.setBroadcast(true);
-      log("info", `Broadcasting swarm on UDP ${DISCOVERY_PORT}`);
+      log("info", `Broadcasting mesh on UDP ${DISCOVERY_PORT}`);
     });
 
     this.timer = setInterval(() => {
@@ -100,7 +100,7 @@ export class DiscoveryListener {
       this.socket.on("error", reject);
 
       this.socket.bind(DISCOVERY_PORT, () => {
-        log("info", `Listening for swarm broadcasts on UDP ${DISCOVERY_PORT}`);
+        log("info", `Listening for mesh broadcasts on UDP ${DISCOVERY_PORT}`);
         resolve();
       });
     });

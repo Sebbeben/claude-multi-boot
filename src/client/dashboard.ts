@@ -1,5 +1,5 @@
 /**
- * Live terminal dashboard for claude-swarm.
+ * Live terminal dashboard for claude-mesh.
  *
  * Shows connected peers, recent activity, sync status, and connection health
  * in a continuously updating terminal display.
@@ -78,7 +78,7 @@ export class Dashboard {
 
     // Header
     lines.push(chalk.bold.cyan("  ╔══════════════════════════════════════════════════╗"));
-    lines.push(chalk.bold.cyan("  ║") + chalk.bold.white("          claude-swarm dashboard              ") + chalk.bold.cyan("║"));
+    lines.push(chalk.bold.cyan("  ║") + chalk.bold.white("          claude-mesh dashboard              ") + chalk.bold.cyan("║"));
     lines.push(chalk.bold.cyan("  ╚══════════════════════════════════════════════════╝"));
     lines.push("");
 

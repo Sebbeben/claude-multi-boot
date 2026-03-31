@@ -56,9 +56,9 @@ describe("mergeClaudeMd", () => {
     expect(result.content).toContain("From remote");
   });
 
-  it("preserves swarm block from remote", () => {
-    const local = "# Project\nNotes\n\n<!-- claude-swarm:start -->\nOLD BLOCK\n<!-- claude-swarm:end -->";
-    const remote = "# Project\nNotes\n\n<!-- claude-swarm:start -->\nNEW BLOCK\n<!-- claude-swarm:end -->";
+  it("preserves mesh block from remote", () => {
+    const local = "# Project\nNotes\n\n<!-- claude-mesh:start -->\nOLD BLOCK\n<!-- claude-mesh:end -->";
+    const remote = "# Project\nNotes\n\n<!-- claude-mesh:start -->\nNEW BLOCK\n<!-- claude-mesh:end -->";
     const result = mergeClaudeMd(null, local, remote);
     expect(result.content).toContain("NEW BLOCK");
     expect(result.content).not.toContain("OLD BLOCK");
