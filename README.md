@@ -74,8 +74,8 @@ Run this on **every machine** you want to sync:
 
 ```bash
 # Clone the repo
-git clone https://github.com/sebbeben/claude-swarm.git
-cd claude-swarm
+git clone https://github.com/sebbeben/claude-mesh.git
+cd claude-mesh
 
 # Install dependencies
 npm install
